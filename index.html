@@ -13,89 +13,94 @@
 <body>
   <header class="topbar">
     <div>
-      <h1>Support Analytics Dashboard</h1>
-      <p>Conversation performance, handovers, failures, and issue insights</p>
+      <h1 data-i18n="appTitle">Support Analytics Dashboard</h1>
+      <p data-i18n="appSubtitle">Conversation performance, handovers, failures, and issue insights</p>
     </div>
     <div class="topbar-actions">
-      <button id="clearDataBtn" class="btn danger">Clear Data</button>
+      <label for="languageSelect" class="muted" data-i18n="languageLabel">Language</label>
+      <select id="languageSelect">
+        <option value="en">ENG</option>
+        <option value="nl">NL</option>
+      </select>
+      <button id="clearDataBtn" class="btn danger" data-i18n="clearDataBtn">Clear Data</button>
     </div>
   </header>
 
   <section class="panel uploader">
     <div class="uploader-row">
-      <label for="datasetInput" class="file-label">Upload datasets (CSV, XLSX, JSON)</label>
+      <label for="datasetInput" class="file-label" data-i18n="uploadLabel">Upload datasets (CSV, XLSX, JSON)</label>
       <input id="datasetInput" type="file" accept=".csv,.json,.xlsx,.xls" multiple />
-      <button id="uploadBtn" class="btn primary">Analyze Upload</button>
+      <button id="uploadBtn" class="btn primary" data-i18n="analyzeUploadBtn">Analyze Upload</button>
     </div>
     <div class="uploader-row">
       <label class="toggle-wrap">
         <input id="aiEnabled" type="checkbox" />
-        <span>Enable AI-powered analysis (OpenAI GPT-5.2)</span>
+        <span data-i18n="aiToggle">Enable AI-powered analysis (OpenAI GPT-5.2)</span>
       </label>
-      <input id="openAiKey" type="password" placeholder="OpenAI API Key (optional if AI is off)" />
-      <button id="runAiBtn" class="btn">Run AI Enrichment</button>
+      <input id="openAiKey" type="password" data-i18n-placeholder="openAiKeyPlaceholder" placeholder="OpenAI API Key (optional if AI is off)" />
+      <button id="runAiBtn" class="btn" data-i18n="runAiBtn">Run AI Enrichment</button>
     </div>
     <div class="uploader-row">
-      <label for="activeDatasetSelect">Active dataset</label>
+      <label for="activeDatasetSelect" data-i18n="activeDatasetLabel">Active dataset</label>
       <select id="activeDatasetSelect"></select>
-      <span id="persistLabel" class="muted">Stored in session memory until browser closes</span>
+      <span id="persistLabel" class="muted" data-i18n="persistLabel">Stored in session memory until browser closes</span>
     </div>
     <p id="statusMessage" class="status"></p>
   </section>
 
   <nav class="tabs">
-    <button class="tab-btn active" data-tab="overviewTab">Overview</button>
-    <button class="tab-btn" data-tab="dataExplorerTab">Data Explorer</button>
-    <button class="tab-btn" data-tab="handoversTab">Handovers</button>
-    <button class="tab-btn" data-tab="problemsTab">Problem Analysis</button>
-    <button class="tab-btn" data-tab="comparisonTab">Dataset Comparison</button>
+    <button class="tab-btn active" data-tab="overviewTab" data-i18n="tabOverview">Overview</button>
+    <button class="tab-btn" data-tab="dataExplorerTab" data-i18n="tabExplorer">Data Explorer</button>
+    <button class="tab-btn" data-tab="handoversTab" data-i18n="tabHandovers">Handovers</button>
+    <button class="tab-btn" data-tab="problemsTab" data-i18n="tabProblems">Problem Analysis</button>
+    <button class="tab-btn" data-tab="comparisonTab" data-i18n="tabComparison">Dataset Comparison</button>
   </nav>
 
   <main>
     <section id="overviewTab" class="tab-content active">
       <div class="kpi-grid">
-        <article class="kpi-card"><h3>Total Conversations</h3><p id="kpiConversations">0</p></article>
-        <article class="kpi-card"><h3>Resolution Rate</h3><p id="kpiResolutionRate">0%</p></article>
-        <article class="kpi-card"><h3>Handover Rate</h3><p id="kpiHandoverRate">0%</p></article>
+        <article class="kpi-card"><h3 data-i18n="kpiTotalConversations">Total Conversations</h3><p id="kpiConversations">0</p></article>
+        <article class="kpi-card"><h3 data-i18n="kpiResolutionRate">Resolution Rate</h3><p id="kpiResolutionRate">0%</p></article>
+        <article class="kpi-card"><h3 data-i18n="kpiHandoverRate">Handover Rate</h3><p id="kpiHandoverRate">0%</p></article>
       </div>
       <div class="chart-grid">
         <article class="panel">
-          <h3>Resolution Distribution</h3>
+          <h3 data-i18n="chartResolutionDistribution">Resolution Distribution</h3>
           <canvas id="resolutionPie"></canvas>
         </article>
         <article class="panel">
-          <h3>Conversation Volume Over Time</h3>
+          <h3 data-i18n="chartVolumeOverTime">Conversation Volume Over Time</h3>
           <canvas id="volumeLine"></canvas>
         </article>
       </div>
       <article class="panel">
-        <h3>Key Insights</h3>
+        <h3 data-i18n="keyInsights">Key Insights</h3>
         <ul id="insightsList"></ul>
       </article>
     </section>
 
     <section id="dataExplorerTab" class="tab-content">
       <article class="panel">
-        <h3>Detected Column Types</h3>
+        <h3 data-i18n="detectedColumnTypes">Detected Column Types</h3>
         <div id="columnTypeTableWrap" class="table-wrap"></div>
       </article>
       <article class="panel">
-        <h3>Data Quality Findings</h3>
+        <h3 data-i18n="dataQualityFindings">Data Quality Findings</h3>
         <div id="qualityTableWrap" class="table-wrap"></div>
       </article>
       <article class="panel">
-        <h3>Full Dataset</h3>
+        <h3 data-i18n="fullDataset">Full Dataset</h3>
         <div class="controls-inline">
-          <input id="tableFilterInput" type="text" placeholder="Filter rows..." />
-          <label for="tablePageSize">Rows per page</label>
+          <input id="tableFilterInput" type="text" data-i18n-placeholder="filterRowsPlaceholder" placeholder="Filter rows..." />
+          <label for="tablePageSize" data-i18n="rowsPerPage">Rows per page</label>
           <select id="tablePageSize">
             <option value="10">10</option>
             <option value="25" selected>25</option>
             <option value="50">50</option>
             <option value="100">100</option>
           </select>
-          <button id="tablePrevBtn" class="btn">Prev</button>
-          <button id="tableNextBtn" class="btn">Next</button>
+          <button id="tablePrevBtn" class="btn" data-i18n="prevBtn">Prev</button>
+          <button id="tableNextBtn" class="btn" data-i18n="nextBtn">Next</button>
           <span id="tablePageInfo" class="muted"></span>
         </div>
         <div id="dataTableWrap" class="table-wrap"></div>
@@ -104,21 +109,21 @@
 
     <section id="handoversTab" class="tab-content">
       <div class="kpi-grid">
-        <article class="kpi-card"><h3>Total Handovers</h3><p id="kpiHandovers">0</p></article>
-        <article class="kpi-card"><h3>% Conversations with Handover</h3><p id="kpiHandoverPct">0%</p></article>
+        <article class="kpi-card"><h3 data-i18n="kpiTotalHandovers">Total Handovers</h3><p id="kpiHandovers">0</p></article>
+        <article class="kpi-card"><h3 data-i18n="kpiConversationHandoverPct">% Conversations with Handover</h3><p id="kpiHandoverPct">0%</p></article>
       </div>
       <div class="chart-grid">
         <article class="panel">
-          <h3>Handovers Over Time</h3>
+          <h3 data-i18n="chartHandoversOverTime">Handovers Over Time</h3>
           <canvas id="handoverTimeline"></canvas>
         </article>
         <article class="panel">
-          <h3>Handovers by Issue Category</h3>
+          <h3 data-i18n="chartHandoversByCategory">Handovers by Issue Category</h3>
           <canvas id="handoverCategoryBar"></canvas>
         </article>
       </div>
       <article class="panel">
-        <h3>Handover Cases</h3>
+        <h3 data-i18n="handoverCases">Handover Cases</h3>
         <div id="handoverTableWrap" class="table-wrap"></div>
       </article>
     </section>
@@ -126,31 +131,31 @@
     <section id="problemsTab" class="tab-content">
       <div class="chart-grid">
         <article class="panel">
-          <h3>Top 5 Problem Categories</h3>
+          <h3 data-i18n="topProblemCategories">Top 5 Problem Categories</h3>
           <canvas id="problemBar"></canvas>
         </article>
         <article class="panel">
-          <h3>Failure Signal Distribution</h3>
+          <h3 data-i18n="failureSignalDistribution">Failure Signal Distribution</h3>
           <canvas id="failurePie"></canvas>
         </article>
       </div>
       <article class="panel">
-        <h3>Top Problems & Example Conversations</h3>
+        <h3 data-i18n="topProblemsExamples">Top Problems & Example Conversations</h3>
         <div id="problemExamplesWrap"></div>
       </article>
     </section>
 
     <section id="comparisonTab" class="tab-content">
       <article class="panel">
-        <h3>Dataset Performance Comparison</h3>
+        <h3 data-i18n="datasetPerformanceComparison">Dataset Performance Comparison</h3>
         <canvas id="datasetCompareBar"></canvas>
       </article>
       <article class="panel">
-        <h3>Week-over-Week Style Trend by Upload Order</h3>
+        <h3 data-i18n="datasetTrendUploadOrder">Week-over-Week Style Trend by Upload Order</h3>
         <canvas id="datasetTrendLine"></canvas>
       </article>
       <article class="panel">
-        <h3>Dataset Summary Table</h3>
+        <h3 data-i18n="datasetSummaryTable">Dataset Summary Table</h3>
         <div id="compareTableWrap" class="table-wrap"></div>
       </article>
     </section>

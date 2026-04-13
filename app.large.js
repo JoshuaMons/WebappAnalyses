@@ -11,11 +11,144 @@ const XLSX_JSON_SIZE_LIMIT_MB = 75;
 const MAX_SESSION_ROWS = 3000;
 const MAX_SESSION_DATASETS = 5;
 const LEGACY_STORAGE_KEYS = ["supportAnalyticsSessionV1"];
+const LANGUAGE_KEY = "supportAnalyticsLanguageV1";
+
+const I18N = {
+  en: {
+    appTitle: "Support Analytics Dashboard",
+    appSubtitle: "Conversation performance, handovers, failures, and issue insights",
+    languageLabel: "Language",
+    clearDataBtn: "Clear Data",
+    uploadLabel: "Upload datasets (CSV, XLSX, JSON)",
+    analyzeUploadBtn: "Analyze Upload",
+    aiToggle: "Enable AI-powered analysis (OpenAI GPT-5.2)",
+    openAiKeyPlaceholder: "OpenAI API Key (optional if AI is off)",
+    runAiBtn: "Run AI Enrichment",
+    activeDatasetLabel: "Active dataset",
+    persistLabel: "Stored in session memory until browser closes",
+    tabOverview: "Overview",
+    tabExplorer: "Data Explorer",
+    tabHandovers: "Handovers",
+    tabProblems: "Problem Analysis",
+    tabComparison: "Dataset Comparison",
+    kpiTotalConversations: "Total Conversations",
+    kpiResolutionRate: "Resolution Rate",
+    kpiHandoverRate: "Handover Rate",
+    chartResolutionDistribution: "Resolution Distribution",
+    chartVolumeOverTime: "Conversation Volume Over Time",
+    keyInsights: "Key Insights",
+    detectedColumnTypes: "Detected Column Types",
+    dataQualityFindings: "Data Quality Findings",
+    fullDataset: "Full Dataset",
+    filterRowsPlaceholder: "Filter rows...",
+    rowsPerPage: "Rows per page",
+    prevBtn: "Prev",
+    nextBtn: "Next",
+    kpiTotalHandovers: "Total Handovers",
+    kpiConversationHandoverPct: "% Conversations with Handover",
+    chartHandoversOverTime: "Handovers Over Time",
+    chartHandoversByCategory: "Handovers by Issue Category",
+    handoverCases: "Handover Cases",
+    topProblemCategories: "Top 5 Problem Categories",
+    failureSignalDistribution: "Failure Signal Distribution",
+    topProblemsExamples: "Top Problems & Example Conversations",
+    datasetPerformanceComparison: "Dataset Performance Comparison",
+    datasetTrendUploadOrder: "Week-over-Week Style Trend by Upload Order",
+    datasetSummaryTable: "Dataset Summary Table",
+    statusSelectDataset: "Select at least one dataset file.",
+    statusAnalyzingFile: "Analyzing {name}...",
+    statusAnalyzedFiles: "Analyzed {count} file(s).",
+    statusUploadFailed: "Upload failed: {error}",
+    clearConfirm: "You are about to clear the dataset(s). Are you sure?",
+    clearDone: "All datasets cleared for this browser session.",
+    noDatasetLoaded: "No dataset loaded",
+    aiNeedDataset: "Upload and select a dataset first.",
+    aiEnableFirst: "Enable AI analysis first.",
+    aiNeedKey: "Enter an OpenAI API key to run AI enrichment.",
+    aiRunning: "Running GPT-5.2 enrichment...",
+    aiDone: "AI enrichment complete.",
+    aiFailed: "AI enrichment failed: {error}",
+    statusProgress: "Analyzing {name}: {pct}% ({rows} rows)",
+    largeConvertCsv: "Large {ext} file detected ({mb} MB). Convert to CSV for 2M+ row streaming mode.",
+    noDataAvailable: "No data available.",
+    noDataInsights: "Upload a dataset to generate insights.",
+    resolved: "Resolved",
+    unresolved: "Unresolved",
+    conversations: "Conversations",
+    handovers: "Handovers",
+    frequency: "Frequency"
+  },
+  nl: {
+    appTitle: "Support Analyse Dashboard",
+    appSubtitle: "Gespreksperformance, overdrachten, fouten en issue-inzichten",
+    languageLabel: "Taal",
+    clearDataBtn: "Data wissen",
+    uploadLabel: "Upload datasets (CSV, XLSX, JSON)",
+    analyzeUploadBtn: "Upload analyseren",
+    aiToggle: "AI-analyse inschakelen (OpenAI GPT-5.2)",
+    openAiKeyPlaceholder: "OpenAI API sleutel (optioneel als AI uit staat)",
+    runAiBtn: "AI verrijking starten",
+    activeDatasetLabel: "Actieve dataset",
+    persistLabel: "Opgeslagen in sessiegeheugen totdat de browser sluit",
+    tabOverview: "Overzicht",
+    tabExplorer: "Data Verkenner",
+    tabHandovers: "Overdrachten",
+    tabProblems: "Probleemanalyse",
+    tabComparison: "Dataset Vergelijking",
+    kpiTotalConversations: "Totaal gesprekken",
+    kpiResolutionRate: "Oplossingsratio",
+    kpiHandoverRate: "Overdrachtsratio",
+    chartResolutionDistribution: "Verdeling opgelost/niet opgelost",
+    chartVolumeOverTime: "Gespreksvolume over tijd",
+    keyInsights: "Belangrijkste inzichten",
+    detectedColumnTypes: "Gedetecteerde kolomtypes",
+    dataQualityFindings: "Datakwaliteit bevindingen",
+    fullDataset: "Volledige dataset",
+    filterRowsPlaceholder: "Rijen filteren...",
+    rowsPerPage: "Rijen per pagina",
+    prevBtn: "Vorige",
+    nextBtn: "Volgende",
+    kpiTotalHandovers: "Totaal overdrachten",
+    kpiConversationHandoverPct: "% Gesprekken met overdracht",
+    chartHandoversOverTime: "Overdrachten over tijd",
+    chartHandoversByCategory: "Overdrachten per categorie",
+    handoverCases: "Overdrachtsgevallen",
+    topProblemCategories: "Top 5 probleemcategorieën",
+    failureSignalDistribution: "Verdeling foutsignalen",
+    topProblemsExamples: "Top problemen & voorbeeldgesprekken",
+    datasetPerformanceComparison: "Dataset performance vergelijking",
+    datasetTrendUploadOrder: "Trend per uploadvolgorde",
+    datasetSummaryTable: "Dataset samenvattingstabel",
+    statusSelectDataset: "Selecteer minimaal één datasetbestand.",
+    statusAnalyzingFile: "Bezig met analyseren van {name}...",
+    statusAnalyzedFiles: "{count} bestand(en) geanalyseerd.",
+    statusUploadFailed: "Upload mislukt: {error}",
+    clearConfirm: "Je staat op het punt de dataset(s) te wissen. Weet je het zeker?",
+    clearDone: "Alle datasets zijn voor deze sessie gewist.",
+    noDatasetLoaded: "Geen dataset geladen",
+    aiNeedDataset: "Upload en selecteer eerst een dataset.",
+    aiEnableFirst: "Schakel eerst AI-analyse in.",
+    aiNeedKey: "Voer een OpenAI API sleutel in om AI verrijking te draaien.",
+    aiRunning: "GPT-5.2 verrijking wordt uitgevoerd...",
+    aiDone: "AI verrijking voltooid.",
+    aiFailed: "AI verrijking mislukt: {error}",
+    statusProgress: "Analyseren {name}: {pct}% ({rows} rijen)",
+    largeConvertCsv: "Groot {ext}-bestand gedetecteerd ({mb} MB). Converteer naar CSV voor 2M+ rij streaming modus.",
+    noDataAvailable: "Geen data beschikbaar.",
+    noDataInsights: "Upload een dataset om inzichten te genereren.",
+    resolved: "Opgelost",
+    unresolved: "Niet opgelost",
+    conversations: "Gesprekken",
+    handovers: "Overdrachten",
+    frequency: "Frequentie"
+  }
+};
 
 const state = {
   datasets: [],
   activeDatasetId: null,
   aiEnabled: false,
+  language: "en",
   table: {
     sortKey: null,
     sortDir: 1,
@@ -34,7 +167,9 @@ document.addEventListener("DOMContentLoaded", init);
 function init() {
   cleanupLegacyStorage();
   loadSession();
+  state.language = loadLanguage();
   bindEvents();
+  applyTranslations();
   renderDatasetSelect();
   renderAll();
 }
@@ -53,6 +188,13 @@ function bindEvents() {
     saveSession();
   });
   byId("runAiBtn").addEventListener("click", runAiEnrichment);
+  byId("languageSelect").addEventListener("change", (e) => {
+    state.language = e.target.value === "nl" ? "nl" : "en";
+    persistLanguage(state.language);
+    applyTranslations();
+    renderDatasetSelect();
+    renderAll();
+  });
   byId("tableFilterInput").addEventListener("input", (e) => {
     state.table.filter = e.target.value.trim().toLowerCase();
     state.table.page = 1;
@@ -83,12 +225,12 @@ function activateTab(tabId) {
 async function handleUpload() {
   const files = byId("datasetInput").files;
   if (!files || !files.length) {
-    setStatus("Select at least one dataset file.");
+    setStatus(t("statusSelectDataset"));
     return;
   }
   try {
     for (const file of files) {
-      setStatus(`Analyzing ${file.name}...`);
+      setStatus(t("statusAnalyzingFile", { name: file.name }));
       const dataset = await analyzeFileToDataset(file);
       state.datasets.push(dataset);
       state.activeDatasetId = dataset.id;
@@ -96,14 +238,14 @@ async function handleUpload() {
       renderDatasetSelect();
       renderAll();
     }
-    setStatus(`Analyzed ${files.length} file(s).`);
+    setStatus(t("statusAnalyzedFiles", { count: files.length }));
   } catch (error) {
-    setStatus(`Upload failed: ${error.message}`);
+    setStatus(t("statusUploadFailed", { error: error.message }));
   }
 }
 
 function clearData() {
-  const ok = window.confirm("You are about to clear the dataset(s). Are you sure?");
+  const ok = window.confirm(t("clearConfirm"));
   if (!ok) return;
   state.datasets = [];
   state.activeDatasetId = null;
@@ -111,7 +253,7 @@ function clearData() {
   sessionStorage.removeItem(STORAGE_KEY);
   renderDatasetSelect();
   renderAll();
-  setStatus("All datasets cleared for this browser session.");
+  setStatus(t("clearDone"));
 }
 
 async function analyzeFileToDataset(file) {
@@ -130,7 +272,7 @@ async function analyzeFileToDataset(file) {
 
   const sizeMb = file.size / (1024 * 1024);
   if ((ext === "xlsx" || ext === "xls" || ext === "json") && sizeMb > XLSX_JSON_SIZE_LIMIT_MB) {
-    throw new Error(`Large ${ext.toUpperCase()} file detected (${sizeMb.toFixed(1)} MB). Convert to CSV for 2M+ row streaming mode.`);
+    throw new Error(t("largeConvertCsv", { ext: ext.toUpperCase(), mb: sizeMb.toFixed(1) }));
   }
 
   const rows = ext === "json" ? await parseJson(file) : await parseExcel(file);
@@ -151,6 +293,7 @@ function parseAndAnalyzeCsvStream(file) {
     let lastProgressTs = 0;
     Papa.parse(file, {
       header: true,
+      transformHeader: (header) => normalizeHeaderName(header),
       skipEmptyLines: true,
       worker: true,
       chunkSize: 2 * 1024 * 1024,
@@ -160,7 +303,7 @@ function parseAndAnalyzeCsvStream(file) {
         const now = Date.now();
         if (now - lastProgressTs > 400) {
           const pct = Math.min(100, Math.round((results.meta.cursor / file.size) * 100));
-          setStatus(`Analyzing ${file.name}: ${pct}% (${engine.rowCount.toLocaleString()} rows)`);
+          setStatus(t("statusProgress", { name: file.name, pct, rows: engine.rowCount.toLocaleString() }));
           lastProgressTs = now;
         }
       },
@@ -462,14 +605,24 @@ async function parseExcel(file) {
   const data = await file.arrayBuffer();
   const workbook = XLSX.read(data);
   const firstSheet = workbook.SheetNames[0];
-  return XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: null });
+  const sheetRows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { header: 1, defval: null });
+  return rowsWithHeaderFirstLine(sheetRows);
 }
 
 async function parseJson(file) {
   const text = await file.text();
   const parsed = JSON.parse(text);
+  if (Array.isArray(parsed) && parsed.length && Array.isArray(parsed[0])) {
+    return rowsWithHeaderFirstLine(parsed);
+  }
   if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed.data) && parsed.data.length && Array.isArray(parsed.data[0])) {
+    return rowsWithHeaderFirstLine(parsed.data);
+  }
   if (Array.isArray(parsed.data)) return parsed.data;
+  if (Array.isArray(parsed.rows) && parsed.rows.length && Array.isArray(parsed.rows[0])) {
+    return rowsWithHeaderFirstLine(parsed.rows);
+  }
   if (Array.isArray(parsed.rows)) return parsed.rows;
   if (typeof parsed === "object" && parsed !== null) return [parsed];
   return [];
@@ -539,11 +692,11 @@ function categorizeIssue(text) {
 
 async function runAiEnrichment() {
   const dataset = getActiveDataset();
-  if (!dataset) return setStatus("Upload and select a dataset first.");
-  if (!byId("aiEnabled").checked) return setStatus("Enable AI analysis first.");
+  if (!dataset) return setStatus(t("aiNeedDataset"));
+  if (!byId("aiEnabled").checked) return setStatus(t("aiEnableFirst"));
   const apiKey = byId("openAiKey").value.trim();
-  if (!apiKey) return setStatus("Enter an OpenAI API key to run AI enrichment.");
-  setStatus("Running GPT-5.2 enrichment...");
+  if (!apiKey) return setStatus(t("aiNeedKey"));
+  setStatus(t("aiRunning"));
   try {
     const payload = dataset.analysis.topProblems.map((p) => ({ issue: p.problem, frequency: p.frequency, examples: p.examples }));
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -565,9 +718,9 @@ async function runAiEnrichment() {
     dataset.analysis.aiIssueLabels = parsed.issue_labels || {};
     saveSession();
     renderAll();
-    setStatus("AI enrichment complete.");
+    setStatus(t("aiDone"));
   } catch (error) {
-    setStatus(`AI enrichment failed: ${error.message}`);
+    setStatus(t("aiFailed", { error: error.message }));
   }
 }
 
@@ -577,7 +730,7 @@ function renderDatasetSelect() {
   if (!state.datasets.length) {
     const opt = document.createElement("option");
     opt.value = "";
-    opt.textContent = "No dataset loaded";
+    opt.textContent = t("noDatasetLoaded");
     sel.appendChild(opt);
     return;
   }
@@ -608,7 +761,7 @@ function renderOverview() {
     byId("kpiConversations").textContent = "0";
     byId("kpiResolutionRate").textContent = "0%";
     byId("kpiHandoverRate").textContent = "0%";
-    byId("insightsList").innerHTML = "<li>Upload a dataset to generate insights.</li>";
+    byId("insightsList").innerHTML = `<li>${escapeHtml(t("noDataInsights"))}</li>`;
     destroyChart("resolutionPie");
     destroyChart("volumeLine");
     return;
@@ -618,12 +771,12 @@ function renderOverview() {
   byId("kpiResolutionRate").textContent = `${a.resolutionRate}%`;
   byId("kpiHandoverRate").textContent = `${a.handoverRate}%`;
   drawChart("resolutionPie", "pie", {
-    labels: ["Resolved", "Unresolved"],
+    labels: [t("resolved"), t("unresolved")],
     datasets: [{ data: [a.statusCount.resolved, a.totalConversations - a.statusCount.resolved], backgroundColor: ["#33d17a", "#ff5f77"] }]
   });
   drawChart("volumeLine", "line", {
     labels: a.timeline.map((t) => t[0]),
-    datasets: [{ label: "Conversations", data: a.timeline.map((t) => t[1]), borderColor: "#5c8cff", fill: false, tension: 0.25 }]
+    datasets: [{ label: t("conversations"), data: a.timeline.map((t) => t[1]), borderColor: "#5c8cff", fill: false, tension: 0.25 }]
   });
   const insights = generateInsights(dataset);
   byId("insightsList").innerHTML = insights.map((i) => `<li>${escapeHtml(i)}</li>`).join("");
@@ -707,12 +860,12 @@ function renderHandovers() {
   const entries = Object.entries(handoverTimeline).sort((a1, b1) => a1[0].localeCompare(b1[0]));
   drawChart("handoverTimeline", "line", {
     labels: entries.map((e) => e[0]),
-    datasets: [{ label: "Handovers", data: entries.map((e) => e[1]), borderColor: "#f4b648", tension: 0.25 }]
+    datasets: [{ label: t("handovers"), data: entries.map((e) => e[1]), borderColor: "#f4b648", tension: 0.25 }]
   });
   const cat = Object.entries(a.handoverByCategory).sort((x, y) => y[1] - x[1]);
   drawChart("handoverCategoryBar", "bar", {
     labels: cat.map((c) => mapIssueLabel(c[0], a)),
-    datasets: [{ label: "Handovers", data: cat.map((c) => c[1]), backgroundColor: "#5c8cff" }]
+    datasets: [{ label: t("handovers"), data: cat.map((c) => c[1]), backgroundColor: "#5c8cff" }]
   });
   renderTable(byId("handoverTableWrap"), a.handoverRows.map((r) => ({ ...r, category: mapIssueLabel(r.category, a) })), ["conversationId", "handoverTime", "category", "reason", "turns"]);
 }
@@ -728,7 +881,7 @@ function renderProblems() {
   const a = dataset.analysis;
   drawChart("problemBar", "bar", {
     labels: a.topProblems.map((p) => mapIssueLabel(p.problem, a)),
-    datasets: [{ label: "Frequency", data: a.topProblems.map((p) => p.frequency), backgroundColor: "#3f73f7" }]
+    datasets: [{ label: t("frequency"), data: a.topProblems.map((p) => p.frequency), backgroundColor: "#3f73f7" }]
   });
   drawChart("failurePie", "pie", {
     labels: ["Repeated Questions", "Negative Sentiment", "Fallback Responses", "Long Unresolved"],
@@ -797,7 +950,7 @@ function destroyChart(id) {
 
 function renderTable(container, rows, columns, onSort) {
   if (!rows || !rows.length) {
-    container.innerHTML = "<p class='muted'>No data available.</p>";
+    container.innerHTML = `<p class='muted'>${escapeHtml(t("noDataAvailable"))}</p>`;
     return;
   }
   const header = columns.map((col) => `<th data-key="${escapeHtml(col)}">${escapeHtml(col)}</th>`).join("");
@@ -1001,4 +1154,72 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function rowsWithHeaderFirstLine(rows2d) {
+  if (!Array.isArray(rows2d) || rows2d.length === 0) return [];
+  const rawHeaders = Array.isArray(rows2d[0]) ? rows2d[0] : [];
+  const headers = rawHeaders.map((h, i) => normalizeHeaderName(h, i));
+  const safeHeaders = dedupeHeaders(headers);
+  const records = [];
+  for (let r = 1; r < rows2d.length; r += 1) {
+    const row = Array.isArray(rows2d[r]) ? rows2d[r] : [];
+    const out = {};
+    safeHeaders.forEach((header, c) => {
+      out[header] = row[c] ?? null;
+    });
+    records.push(out);
+  }
+  return records;
+}
+
+function normalizeHeaderName(value, index = 0) {
+  const text = String(value ?? "").trim();
+  return text || `column_${index + 1}`;
+}
+
+function dedupeHeaders(headers) {
+  const seen = new Map();
+  return headers.map((h) => {
+    const count = seen.get(h) || 0;
+    seen.set(h, count + 1);
+    if (count === 0) return h;
+    return `${h}_${count + 1}`;
+  });
+}
+
+function t(key, vars = {}) {
+  const lang = state.language === "nl" ? "nl" : "en";
+  const template = I18N[lang][key] || I18N.en[key] || key;
+  return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)), template);
+}
+
+function applyTranslations() {
+  const lang = state.language === "nl" ? "nl" : "en";
+  document.documentElement.lang = lang;
+  const langSelect = byId("languageSelect");
+  if (langSelect) langSelect.value = lang;
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    el.setAttribute("placeholder", t(el.getAttribute("data-i18n-placeholder")));
+  });
+}
+
+function loadLanguage() {
+  try {
+    const v = localStorage.getItem(LANGUAGE_KEY);
+    return v === "nl" ? "nl" : "en";
+  } catch {
+    return "en";
+  }
+}
+
+function persistLanguage(lang) {
+  try {
+    localStorage.setItem(LANGUAGE_KEY, lang);
+  } catch {
+    // ignore storage issues
+  }
 }
