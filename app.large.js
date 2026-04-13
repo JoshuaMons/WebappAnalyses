@@ -1,13 +1,14 @@
 const STORAGE_KEY = "supportAnalyticsSessionV2";
 const chartStore = {};
 
-const MAX_PREVIEW_ROWS = 20000;
-const MAX_STORED_ROWS = 50000;
+const MAX_PREVIEW_ROWS = 30000;
+const MAX_STORED_ROWS = 30000;
 const MAX_UNIQUE_TRACK = 5000;
 const MAX_TRACKED_CONVERSATIONS = 400000;
 const MAX_HANDOVER_ROWS = 4000;
 const LARGE_ROW_THRESHOLD = 250000;
 const XLSX_JSON_SIZE_LIMIT_MB = 75;
+const MAX_SESSION_ROWS = 3000;
 
 const state = {
   datasets: [],
@@ -148,7 +149,8 @@ function parseAndAnalyzeCsvStream(file) {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      chunkSize: 1024 * 1024,
+      worker: true,
+      chunkSize: 2 * 1024 * 1024,
       chunk(results) {
         const rows = normalizeRows(results.data);
         engine.ingestRows(rows);
@@ -284,7 +286,7 @@ function ingestRow(ctx, row) {
       repeated: false,
       category,
       firstTime: inferRowTime(row, ctx.fields),
-      questionCounts: new Map(),
+      lastUserMessage: "",
       sampleText: trimText(text, 210)
     };
     ctx.conversationStats.set(convKey, conv);
@@ -299,8 +301,10 @@ function ingestRow(ctx, row) {
   if (ctx.fields.userMessage) {
     const msg = normalizeSentence(row[ctx.fields.userMessage]);
     if (msg) {
-      conv.questionCounts.set(msg, (conv.questionCounts.get(msg) || 0) + 1);
-      if (conv.questionCounts.get(msg) >= 2) conv.repeated = true;
+      if (conv.lastUserMessage && conv.lastUserMessage === msg) {
+        conv.repeated = true;
+      }
+      conv.lastUserMessage = msg;
     }
   }
 }
@@ -323,9 +327,6 @@ function buildRowAsConversation(row, text, category, fields) {
 
 function finalizeTrackedConversations(ctx) {
   for (const conv of ctx.conversationStats.values()) {
-    if (!conv.repeated && conv.questionCounts && conv.questionCounts.size) {
-      conv.repeated = Array.from(conv.questionCounts.values()).some((count) => count >= 2);
-    }
     applyConversationSummary(ctx.aggregate, conv);
   }
 }
@@ -821,11 +822,44 @@ function loadSession() {
 }
 
 function saveSession() {
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
-    datasets: state.datasets,
-    activeDatasetId: state.activeDatasetId,
-    aiEnabled: state.aiEnabled
-  }));
+  const compactDatasets = state.datasets.map((dataset) => {
+    const rows = Array.isArray(dataset.rows) ? dataset.rows.slice(0, MAX_SESSION_ROWS) : [];
+    return {
+      ...dataset,
+      rows,
+      analysis: {
+        ...dataset.analysis,
+        notes: [
+          ...(dataset.analysis.notes || []),
+          ...(dataset.rows && dataset.rows.length > MAX_SESSION_ROWS
+            ? [`Session restore keeps first ${MAX_SESSION_ROWS.toLocaleString()} preview rows.`]
+            : [])
+        ]
+      }
+    };
+  });
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      datasets: compactDatasets,
+      activeDatasetId: state.activeDatasetId,
+      aiEnabled: state.aiEnabled
+    }));
+  } catch {
+    // If browser quota is exceeded, keep UI running and store metadata only.
+    const metadataOnly = compactDatasets.map((dataset) => ({
+      ...dataset,
+      rows: [],
+      analysis: {
+        ...dataset.analysis,
+        notes: [...(dataset.analysis.notes || []), "Session quota reached; row preview not persisted."]
+      }
+    }));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      datasets: metadataOnly,
+      activeDatasetId: state.activeDatasetId,
+      aiEnabled: state.aiEnabled
+    }));
+  }
 }
 
 function getActiveDataset() {

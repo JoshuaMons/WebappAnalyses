@@ -21,8 +21,9 @@ Interactive dark-theme dashboard for support conversation analytics.
 ## Large Dataset Notes (2M+ rows)
 
 - For very large files, use `CSV` for best performance.
-- CSV uploads are streamed and analyzed in chunks to avoid loading all rows into browser memory.
+- CSV uploads are streamed and analyzed in chunks with PapaParse worker mode to avoid loading all rows into browser memory and keep the UI responsive.
 - The Data Explorer shows a preview slice for large files while analytics are computed from the full stream.
+- Session restore stores a compact preview for very large datasets to avoid browser storage quota issues.
 - For very large `Excel`/`JSON` files, convert to CSV first.
 
 ## Run locally
