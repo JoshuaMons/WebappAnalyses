@@ -12,6 +12,7 @@ const MAX_SESSION_ROWS = 3000;
 const MAX_SESSION_DATASETS = 5;
 const LEGACY_STORAGE_KEYS = ["supportAnalyticsSessionV1"];
 const LANGUAGE_KEY = "supportAnalyticsLanguageV1";
+const API_KEY_SESSION_KEY = "supportAnalyticsOpenAiKeySessionV1";
 
 const I18N = {
   en: {
@@ -24,6 +25,7 @@ const I18N = {
     aiToggle: "Enable AI-powered analysis (OpenAI GPT-5.2)",
     openAiKeyPlaceholder: "OpenAI API Key (optional if AI is off)",
     runAiBtn: "Run AI Enrichment",
+    clearApiKeyBtn: "Clear API Key",
     activeDatasetLabel: "Active dataset",
     persistLabel: "Stored in session memory until browser closes",
     tabOverview: "Overview",
@@ -65,6 +67,7 @@ const I18N = {
     aiNeedDataset: "Upload and select a dataset first.",
     aiEnableFirst: "Enable AI analysis first.",
     aiNeedKey: "Enter an OpenAI API key to run AI enrichment.",
+    aiKeyCleared: "API key removed for this session.",
     aiRunning: "Running GPT-5.2 enrichment...",
     aiDone: "AI enrichment complete.",
     aiFailed: "AI enrichment failed: {error}",
@@ -97,6 +100,7 @@ const I18N = {
     aiToggle: "AI-analyse inschakelen (OpenAI GPT-5.2)",
     openAiKeyPlaceholder: "OpenAI API sleutel (optioneel als AI uit staat)",
     runAiBtn: "AI verrijking starten",
+    clearApiKeyBtn: "API sleutel wissen",
     activeDatasetLabel: "Actieve dataset",
     persistLabel: "Opgeslagen in sessiegeheugen totdat de browser sluit",
     tabOverview: "Overzicht",
@@ -138,6 +142,7 @@ const I18N = {
     aiNeedDataset: "Upload en selecteer eerst een dataset.",
     aiEnableFirst: "Schakel eerst AI-analyse in.",
     aiNeedKey: "Voer een OpenAI API sleutel in om AI verrijking te draaien.",
+    aiKeyCleared: "API sleutel verwijderd voor deze sessie.",
     aiRunning: "GPT-5.2 verrijking wordt uitgevoerd...",
     aiDone: "AI verrijking voltooid.",
     aiFailed: "AI verrijking mislukt: {error}",
@@ -188,6 +193,7 @@ function init() {
   state.language = loadLanguage();
   bindEvents();
   applyTranslations();
+  hydrateApiKeyInput();
   renderDatasetSelect();
   renderAll();
 }
@@ -206,6 +212,18 @@ function bindEvents() {
     saveSession();
   });
   byId("runAiBtn").addEventListener("click", runAiEnrichment);
+  byId("clearApiKeyBtn").addEventListener("click", () => {
+    clearApiKeyForSession();
+    const keyInput = byId("openAiKey");
+    if (keyInput) keyInput.value = "";
+    setStatus(t("aiKeyCleared"));
+  });
+  byId("openAiKey").addEventListener("change", (e) => {
+    persistApiKeyForSession(e.target.value);
+  });
+  byId("openAiKey").addEventListener("blur", (e) => {
+    persistApiKeyForSession(e.target.value);
+  });
   byId("languageSelect").addEventListener("change", (e) => {
     state.language = e.target.value === "nl" ? "nl" : "en";
     persistLanguage(state.language);
@@ -754,8 +772,9 @@ async function runAiEnrichment() {
   const dataset = getActiveDataset();
   if (!dataset) return setStatus(t("aiNeedDataset"));
   if (!byId("aiEnabled").checked) return setStatus(t("aiEnableFirst"));
-  const apiKey = byId("openAiKey").value.trim();
+  const apiKey = getEffectiveApiKey();
   if (!apiKey) return setStatus(t("aiNeedKey"));
+  persistApiKeyForSession(apiKey);
   setStatus(t("aiRunning"));
   try {
     const payload = dataset.analysis.topProblems.map((p) => ({ issue: p.problem, frequency: p.frequency, examples: p.examples }));
@@ -1307,5 +1326,48 @@ function persistLanguage(lang) {
     localStorage.setItem(LANGUAGE_KEY, lang);
   } catch {
     // ignore storage issues
+  }
+}
+
+function hydrateApiKeyInput() {
+  const keyInput = byId("openAiKey");
+  if (!keyInput) return;
+  const saved = loadApiKeyFromSession();
+  if (saved) keyInput.value = saved;
+}
+
+function getEffectiveApiKey() {
+  const keyInput = byId("openAiKey");
+  const fromInput = keyInput ? keyInput.value.trim() : "";
+  if (fromInput) return fromInput;
+  return loadApiKeyFromSession();
+}
+
+function loadApiKeyFromSession() {
+  try {
+    return sessionStorage.getItem(API_KEY_SESSION_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function persistApiKeyForSession(value) {
+  const clean = String(value || "").trim();
+  try {
+    if (!clean) {
+      sessionStorage.removeItem(API_KEY_SESSION_KEY);
+      return;
+    }
+    sessionStorage.setItem(API_KEY_SESSION_KEY, clean);
+  } catch {
+    // Ignore storage issues.
+  }
+}
+
+function clearApiKeyForSession() {
+  try {
+    sessionStorage.removeItem(API_KEY_SESSION_KEY);
+  } catch {
+    // Ignore storage issues.
   }
 }
