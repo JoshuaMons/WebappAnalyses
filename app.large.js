@@ -32,6 +32,7 @@ const I18N = {
     tabExplorer: "Data Explorer",
     tabHandovers: "Handovers",
     tabProblems: "Problem Analysis",
+    tabAiAnalysis: "AI Analysis",
     tabComparison: "Dataset Comparison",
     kpiTotalConversations: "Total Conversations",
     kpiResolutionRate: "Resolution Rate",
@@ -71,6 +72,13 @@ const I18N = {
     aiRunning: "Running GPT-5.2 enrichment...",
     aiDone: "AI enrichment complete.",
     aiFailed: "AI enrichment failed: {error}",
+    aiNetworkHelp: "Network error. If deployed on Vercel, set OPENAI_API_KEY and use the same-origin /api/ai-enrich endpoint.",
+    aiAnalysisSummaryTitle: "AI Analysis Summary",
+    aiInsightsTitle: "AI Insights",
+    aiIssueLabelsTitle: "AI Issue Labels",
+    aiNotRunYet: "AI analysis has not been run yet for this dataset.",
+    aiLastRun: "Last AI run: {time}",
+    aiNoIssueLabels: "No AI issue labels available yet.",
     statusProgress: "Analyzing {name}: {pct}% ({rows} rows)",
     largeConvertCsv: "Large {ext} file detected ({mb} MB). Convert to CSV for 2M+ row streaming mode.",
     noDataAvailable: "No data available.",
@@ -107,6 +115,7 @@ const I18N = {
     tabExplorer: "Data Verkenner",
     tabHandovers: "Overdrachten",
     tabProblems: "Probleemanalyse",
+    tabAiAnalysis: "AI Analyse",
     tabComparison: "Dataset Vergelijking",
     kpiTotalConversations: "Totaal gesprekken",
     kpiResolutionRate: "Oplossingsratio",
@@ -146,6 +155,13 @@ const I18N = {
     aiRunning: "GPT-5.2 verrijking wordt uitgevoerd...",
     aiDone: "AI verrijking voltooid.",
     aiFailed: "AI verrijking mislukt: {error}",
+    aiNetworkHelp: "Netwerkfout. Bij Vercel: zet OPENAI_API_KEY en gebruik dezelfde-origin /api/ai-enrich endpoint.",
+    aiAnalysisSummaryTitle: "AI Analyse Samenvatting",
+    aiInsightsTitle: "AI Inzichten",
+    aiIssueLabelsTitle: "AI Issue Labels",
+    aiNotRunYet: "AI analyse is nog niet uitgevoerd voor deze dataset.",
+    aiLastRun: "Laatste AI-run: {time}",
+    aiNoIssueLabels: "Nog geen AI issue labels beschikbaar.",
     statusProgress: "Analyseren {name}: {pct}% ({rows} rijen)",
     largeConvertCsv: "Groot {ext}-bestand gedetecteerd ({mb} MB). Converteer naar CSV voor 2M+ rij streaming modus.",
     noDataAvailable: "Geen data beschikbaar.",
@@ -792,29 +808,61 @@ async function runAiEnrichment() {
   setStatus(t("aiRunning"));
   try {
     const payload = dataset.analysis.topProblems.map((p) => ({ issue: p.problem, frequency: p.frequency, examples: p.examples }));
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "gpt-5.2",
-        input: [
-          { role: "system", content: "You are a support analytics assistant. Output valid JSON only." },
-          { role: "user", content: `Return strict JSON with keys: insights (array), issue_labels (object). Input: ${JSON.stringify(payload)}` }
-        ]
-      })
-    });
-    if (!response.ok) throw new Error(`OpenAI API error ${response.status}`);
-    const data = await response.json();
+    const data = await requestAiEnrichment(payload, apiKey);
     const text = extractResponseText(data);
     const parsed = parseJsonFromText(text);
     dataset.analysis.aiInsights = Array.isArray(parsed.insights) ? parsed.insights.slice(0, 5) : [];
     dataset.analysis.aiIssueLabels = parsed.issue_labels || {};
+    dataset.analysis.aiLastRun = new Date().toISOString();
+    dataset.analysis.aiLastError = "";
     saveSession();
     renderAll();
     setStatus(t("aiDone"));
   } catch (error) {
-    setStatus(t("aiFailed", { error: error.message }));
+    const friendly = isLikelyNetworkError(error)
+      ? `${error.message}. ${t("aiNetworkHelp")}`
+      : error.message;
+    dataset.analysis.aiLastError = friendly;
+    renderAiAnalysis();
+    setStatus(t("aiFailed", { error: friendly }));
   }
+}
+
+async function requestAiEnrichment(payload, apiKey) {
+  const proxyResponse = await fetch("/api/ai-enrich", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload, model: "gpt-5.2", apiKey })
+  }).catch(() => null);
+
+  if (proxyResponse && proxyResponse.ok) {
+    return proxyResponse.json();
+  }
+
+  if (proxyResponse && proxyResponse.status !== 404) {
+    const proxyText = await proxyResponse.text().catch(() => "");
+    throw new Error(`AI proxy error ${proxyResponse.status}${proxyText ? `: ${proxyText.slice(0, 160)}` : ""}`);
+  }
+
+  const directResponse = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: "gpt-5.2",
+      input: [
+        { role: "system", content: "You are a support analytics assistant. Output valid JSON only." },
+        { role: "user", content: `Return strict JSON with keys: insights (array), issue_labels (object). Input: ${JSON.stringify(payload)}` }
+      ]
+    })
+  });
+  if (!directResponse.ok) throw new Error(`OpenAI API error ${directResponse.status}`);
+  return directResponse.json();
+}
+
+function isLikelyNetworkError(error) {
+  if (!error) return false;
+  const text = `${error.name || ""} ${error.message || ""}`.toLowerCase();
+  return text.includes("networkerror") || text.includes("failed to fetch") || text.includes("network request");
 }
 
 function renderDatasetSelect() {
@@ -845,6 +893,7 @@ function renderAll() {
   renderDataTable();
   renderHandovers();
   renderProblems();
+  renderAiAnalysis();
   renderComparison();
 }
 
@@ -1007,6 +1056,45 @@ function renderProblems() {
       </div>
     `;
   }).join("");
+}
+
+function renderAiAnalysis() {
+  const dataset = getActiveDataset();
+  const statusEl = byId("aiAnalysisStatus");
+  const insightsEl = byId("aiInsightsList");
+  const labelsWrap = byId("aiIssueLabelsWrap");
+  if (!statusEl || !insightsEl || !labelsWrap) return;
+
+  if (!dataset) {
+    statusEl.textContent = t("noDataInsights");
+    insightsEl.innerHTML = `<li>${escapeHtml(t("noDataAvailable"))}</li>`;
+    labelsWrap.innerHTML = `<p class='muted'>${escapeHtml(t("noDataAvailable"))}</p>`;
+    return;
+  }
+
+  const analysis = dataset.analysis || {};
+  const lastRun = analysis.aiLastRun ? safeDay(analysis.aiLastRun) : "";
+  const lastError = analysis.aiLastError || "";
+  if (lastError) {
+    statusEl.textContent = lastError;
+  } else if (lastRun) {
+    statusEl.textContent = t("aiLastRun", { time: lastRun });
+  } else {
+    statusEl.textContent = t("aiNotRunYet");
+  }
+
+  const insights = Array.isArray(analysis.aiInsights) ? analysis.aiInsights : [];
+  insightsEl.innerHTML = insights.length
+    ? insights.map((insight) => `<li>${escapeHtml(insight)}</li>`).join("")
+    : `<li>${escapeHtml(t("aiNotRunYet"))}</li>`;
+
+  const labels = analysis.aiIssueLabels || {};
+  const labelRows = Object.entries(labels).map(([issue, label]) => ({ issue, label }));
+  if (!labelRows.length) {
+    labelsWrap.innerHTML = `<p class='muted'>${escapeHtml(t("aiNoIssueLabels"))}</p>`;
+    return;
+  }
+  renderTable(labelsWrap, labelRows, ["issue", "label"]);
 }
 
 function renderComparison() {

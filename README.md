@@ -12,6 +12,7 @@ Interactive dark-theme dashboard for support conversation analytics.
   - Data Explorer
   - Handovers
   - Problem Analysis
+  - AI Analysis
   - Dataset Comparison
 - Handover detection via keyword/escalation/failure-loop signals
 - Problem clustering with top issues + example conversations
@@ -48,6 +49,10 @@ python -m http.server 8080
 4. Output directory: `.`
 
 `vercel.json` is included for static hosting defaults.
+
+### AI Proxy (recommended)
+
+Set `OPENAI_API_KEY` in Vercel project environment variables to use the server-side AI proxy endpoint (`/api/ai-enrich`) and avoid browser-side network/CORS issues.
 
 ## Deploy on Render
 

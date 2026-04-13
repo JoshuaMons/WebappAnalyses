@@ -54,6 +54,7 @@
     <button class="tab-btn" data-tab="dataExplorerTab" data-i18n="tabExplorer">Data Explorer</button>
     <button class="tab-btn" data-tab="handoversTab" data-i18n="tabHandovers">Handovers</button>
     <button class="tab-btn" data-tab="problemsTab" data-i18n="tabProblems">Problem Analysis</button>
+    <button class="tab-btn" data-tab="aiAnalysisTab" data-i18n="tabAiAnalysis">AI Analysis</button>
     <button class="tab-btn" data-tab="comparisonTab" data-i18n="tabComparison">Dataset Comparison</button>
   </nav>
 
@@ -143,6 +144,21 @@
       <article class="panel">
         <h3 data-i18n="topProblemsExamples">Top Problems & Example Conversations</h3>
         <div id="problemExamplesWrap"></div>
+      </article>
+    </section>
+
+    <section id="aiAnalysisTab" class="tab-content">
+      <article class="panel">
+        <h3 data-i18n="aiAnalysisSummaryTitle">AI Analysis Summary</h3>
+        <p id="aiAnalysisStatus" class="muted"></p>
+      </article>
+      <article class="panel">
+        <h3 data-i18n="aiInsightsTitle">AI Insights</h3>
+        <ul id="aiInsightsList"></ul>
+      </article>
+      <article class="panel">
+        <h3 data-i18n="aiIssueLabelsTitle">AI Issue Labels</h3>
+        <div id="aiIssueLabelsWrap" class="table-wrap"></div>
       </article>
     </section>
 
