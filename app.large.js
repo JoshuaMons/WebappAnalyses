@@ -329,7 +329,6 @@ function parseAndAnalyzeCsvStream(file) {
     let lastProgressTs = 0;
     Papa.parse(file, {
       header: true,
-      transformHeader: (header) => normalizeHeaderName(header),
       skipEmptyLines: true,
       worker: true,
       chunkSize: 2 * 1024 * 1024,
@@ -675,13 +674,28 @@ async function parseJson(file) {
 
 function normalizeRows(rows) {
   if (!Array.isArray(rows)) return [];
-  const objectRows = rows.map((row) => (row && typeof row === "object" && !Array.isArray(row) ? row : { value: row }));
+  const objectRows = rows.map((row) => {
+    if (row && typeof row === "object" && !Array.isArray(row)) {
+      return normalizeObjectRowHeaders(row);
+    }
+    return { value: row };
+  });
   const keys = Array.from(new Set(objectRows.flatMap((r) => Object.keys(r))));
   return objectRows.map((row) => {
     const out = {};
     keys.forEach((k) => { out[k] = row[k] ?? null; });
     return out;
   });
+}
+
+function normalizeObjectRowHeaders(rowObj) {
+  const rawKeys = Object.keys(rowObj);
+  const normalizedKeys = dedupeHeaders(rawKeys.map((key, idx) => normalizeHeaderName(key, idx)));
+  const out = {};
+  rawKeys.forEach((rawKey, idx) => {
+    out[normalizedKeys[idx]] = rowObj[rawKey];
+  });
+  return out;
 }
 
 function detectConversationFields(columns) {
