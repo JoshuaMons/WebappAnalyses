@@ -9,6 +9,8 @@ const MAX_HANDOVER_ROWS = 4000;
 const LARGE_ROW_THRESHOLD = 250000;
 const XLSX_JSON_SIZE_LIMIT_MB = 75;
 const MAX_SESSION_ROWS = 3000;
+const MAX_SESSION_DATASETS = 5;
+const LEGACY_STORAGE_KEYS = ["supportAnalyticsSessionV1"];
 
 const state = {
   datasets: [],
@@ -30,6 +32,7 @@ const FALLBACK_REGEX = /\b(i do(?: not|n't) understand|cannot help|rephrase|didn
 document.addEventListener("DOMContentLoaded", init);
 
 function init() {
+  cleanupLegacyStorage();
   loadSession();
   bindEvents();
   renderDatasetSelect();
@@ -822,44 +825,99 @@ function loadSession() {
 }
 
 function saveSession() {
-  const compactDatasets = state.datasets.map((dataset) => {
-    const rows = Array.isArray(dataset.rows) ? dataset.rows.slice(0, MAX_SESSION_ROWS) : [];
-    return {
-      ...dataset,
-      rows,
-      analysis: {
-        ...dataset.analysis,
-        notes: [
-          ...(dataset.analysis.notes || []),
-          ...(dataset.rows && dataset.rows.length > MAX_SESSION_ROWS
-            ? [`Session restore keeps first ${MAX_SESSION_ROWS.toLocaleString()} preview rows.`]
-            : [])
-        ]
-      }
-    };
-  });
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
-      datasets: compactDatasets,
+  const recentDatasets = state.datasets.slice(-MAX_SESSION_DATASETS);
+  const payloads = [
+    {
+      datasets: recentDatasets.map((d) => compactDatasetForSession(d, 300, true)),
       activeDatasetId: state.activeDatasetId,
       aiEnabled: state.aiEnabled
-    }));
-  } catch {
-    // If browser quota is exceeded, keep UI running and store metadata only.
-    const metadataOnly = compactDatasets.map((dataset) => ({
-      ...dataset,
-      rows: [],
-      analysis: {
-        ...dataset.analysis,
-        notes: [...(dataset.analysis.notes || []), "Session quota reached; row preview not persisted."]
-      }
-    }));
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
-      datasets: metadataOnly,
+    },
+    {
+      datasets: recentDatasets.map((d) => compactDatasetForSession(d, 50, true)),
       activeDatasetId: state.activeDatasetId,
       aiEnabled: state.aiEnabled
-    }));
+    },
+    {
+      datasets: recentDatasets.map((d) => compactDatasetForSession(d, 0, false)),
+      activeDatasetId: state.activeDatasetId,
+      aiEnabled: state.aiEnabled
+    },
+    {
+      datasets: [],
+      activeDatasetId: null,
+      aiEnabled: state.aiEnabled
+    }
+  ];
+
+  for (const payload of payloads) {
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      return;
+    } catch {
+      // Try a smaller payload tier.
+    }
   }
+
+  // Hard fail-safe: never break analysis flow due to browser quota.
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore if storage is unavailable.
+  }
+}
+
+function compactDatasetForSession(dataset, rowLimit, includeRows) {
+  const rows = includeRows && Array.isArray(dataset.rows) ? dataset.rows.slice(0, rowLimit) : [];
+  const analysis = dataset.analysis || {};
+  const notes = Array.isArray(analysis.notes) ? analysis.notes.slice(0, 4) : [];
+  if (rowLimit === 0 || !includeRows) {
+    notes.push("Session quota reached; preview rows not persisted.");
+  } else if (Array.isArray(dataset.rows) && dataset.rows.length > rowLimit) {
+    notes.push(`Session restore keeps first ${rowLimit.toLocaleString()} preview rows.`);
+  }
+
+  return {
+    id: dataset.id,
+    name: dataset.name,
+    uploadedAt: dataset.uploadedAt,
+    rows,
+    analysis: {
+      rowCount: analysis.rowCount || 0,
+      columns: Array.isArray(analysis.columns) ? analysis.columns : [],
+      columnTypes: Array.isArray(analysis.columnTypes) ? analysis.columnTypes : [],
+      quality: Array.isArray(analysis.quality) ? analysis.quality : [],
+      fields: analysis.fields || {},
+      totalConversations: analysis.totalConversations || 0,
+      statusCount: analysis.statusCount || { resolved: 0, unresolved: 0, escalated: 0 },
+      handoverCount: analysis.handoverCount || 0,
+      handoverRate: analysis.handoverRate || 0,
+      resolutionRate: analysis.resolutionRate || 0,
+      handoverRows: Array.isArray(analysis.handoverRows) ? analysis.handoverRows.slice(0, 120) : [],
+      handoverByCategory: analysis.handoverByCategory || {},
+      failureSignals: analysis.failureSignals || { repeatedQuestions: 0, negativeSentiment: 0, fallbackResponses: 0, longUnresolved: 0 },
+      topProblems: Array.isArray(analysis.topProblems)
+        ? analysis.topProblems.slice(0, 5).map((p) => ({
+            problem: p.problem,
+            frequency: p.frequency,
+            examples: Array.isArray(p.examples) ? p.examples.slice(0, 1) : []
+          }))
+        : [],
+      timeline: Array.isArray(analysis.timeline) ? analysis.timeline.slice(-180) : [],
+      isLargeMode: !!analysis.isLargeMode,
+      previewOnly: !!analysis.previewOnly,
+      notes
+    }
+  };
+}
+
+function cleanupLegacyStorage() {
+  LEGACY_STORAGE_KEYS.forEach((key) => {
+    try {
+      sessionStorage.removeItem(key);
+    } catch {
+      // Ignore storage availability issues.
+    }
+  });
 }
 
 function getActiveDataset() {
