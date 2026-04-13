@@ -76,7 +76,16 @@ const I18N = {
     unresolved: "Unresolved",
     conversations: "Conversations",
     handovers: "Handovers",
-    frequency: "Frequency"
+    frequency: "Frequency",
+    exampleConversation: "Example conversations",
+    conversationIdLabel: "Conversation ID",
+    turnsLabel: "Turns",
+    userMessageLabel: "User",
+    botResponseLabel: "Bot",
+    statusLabel: "Status",
+    timeLabel: "Time",
+    summaryLabel: "Summary",
+    noExampleText: "No detailed example available."
   },
   nl: {
     appTitle: "Support Analyse Dashboard",
@@ -140,7 +149,16 @@ const I18N = {
     unresolved: "Niet opgelost",
     conversations: "Gesprekken",
     handovers: "Overdrachten",
-    frequency: "Frequentie"
+    frequency: "Frequentie",
+    exampleConversation: "Voorbeeldgesprekken",
+    conversationIdLabel: "Gesprek ID",
+    turnsLabel: "Beurten",
+    userMessageLabel: "Gebruiker",
+    botResponseLabel: "Bot",
+    statusLabel: "Status",
+    timeLabel: "Tijd",
+    summaryLabel: "Samenvatting",
+    noExampleText: "Geen gedetailleerd voorbeeld beschikbaar."
   }
 };
 
@@ -433,7 +451,7 @@ function ingestRow(ctx, row) {
       category,
       firstTime: inferRowTime(row, ctx.fields),
       lastUserMessage: "",
-      sampleText: trimText(text, 210)
+      preview: extractConversationPreview(row, ctx.fields, text)
     };
     ctx.conversationStats.set(convKey, conv);
   }
@@ -453,6 +471,7 @@ function ingestRow(ctx, row) {
       conv.lastUserMessage = msg;
     }
   }
+  enrichConversationPreview(conv.preview, row, ctx.fields, text);
 }
 
 function buildRowAsConversation(row, text, category, fields) {
@@ -467,7 +486,7 @@ function buildRowAsConversation(row, text, category, fields) {
     repeated: false,
     category,
     firstTime: inferRowTime(row, fields),
-    sampleText: trimText(text, 210)
+    preview: extractConversationPreview(row, fields, text)
   };
 }
 
@@ -493,7 +512,15 @@ function applyConversationSummary(aggregate, conv) {
   aggregate.problemCounts[conv.category] = (aggregate.problemCounts[conv.category] || 0) + 1;
   if (!aggregate.problemExamples[conv.category]) aggregate.problemExamples[conv.category] = [];
   if (aggregate.problemExamples[conv.category].length < 3) {
-    aggregate.problemExamples[conv.category].push(conv.sampleText);
+    aggregate.problemExamples[conv.category].push({
+      conversationId: conv.id,
+      turns: conv.turns,
+      user: conv.preview?.user || "",
+      bot: conv.preview?.bot || "",
+      status: conv.preview?.status || (conv.resolved ? "resolved" : "unresolved"),
+      time: conv.preview?.timestamp || conv.firstTime,
+      summary: conv.preview?.summary || ""
+    });
   }
 
   const day = safeDay(conv.firstTime);
@@ -663,6 +690,39 @@ function inferRowTime(row, fields) {
     if (isDatetime(value)) return new Date(value).toISOString();
   }
   return new Date().toISOString();
+}
+
+function extractConversationPreview(row, fields, text) {
+  const user = fields?.userMessage ? trimText(String(row[fields.userMessage] ?? "").trim(), 220) : "";
+  const bot = fields?.botResponse ? trimText(String(row[fields.botResponse] ?? "").trim(), 220) : "";
+  const status = fields?.status ? trimText(String(row[fields.status] ?? "").trim(), 80) : "";
+  const timestamp = fields?.timestamp && row[fields.timestamp] ? String(row[fields.timestamp]) : inferRowTime(row, fields);
+  return {
+    user,
+    bot,
+    status,
+    timestamp,
+    summary: trimText(text, 280)
+  };
+}
+
+function enrichConversationPreview(preview, row, fields, text) {
+  if (!preview) return;
+  if (!preview.user && fields?.userMessage && !isEmpty(row[fields.userMessage])) {
+    preview.user = trimText(String(row[fields.userMessage]).trim(), 220);
+  }
+  if (!preview.bot && fields?.botResponse && !isEmpty(row[fields.botResponse])) {
+    preview.bot = trimText(String(row[fields.botResponse]).trim(), 220);
+  }
+  if (!preview.status && fields?.status && !isEmpty(row[fields.status])) {
+    preview.status = trimText(String(row[fields.status]).trim(), 80);
+  }
+  if ((!preview.timestamp || preview.timestamp === "unknown-date") && fields?.timestamp && !isEmpty(row[fields.timestamp])) {
+    preview.timestamp = String(row[fields.timestamp]);
+  }
+  if (!preview.summary) {
+    preview.summary = trimText(text, 280);
+  }
 }
 
 function detectHandoverReason(handoverKeyword, escalated, fallback, repeated) {
@@ -887,7 +947,33 @@ function renderProblems() {
     labels: ["Repeated Questions", "Negative Sentiment", "Fallback Responses", "Long Unresolved"],
     datasets: [{ data: [a.failureSignals.repeatedQuestions, a.failureSignals.negativeSentiment, a.failureSignals.fallbackResponses, a.failureSignals.longUnresolved], backgroundColor: ["#5c8cff", "#ff5f77", "#f4b648", "#8a7aff"] }]
   });
-  byId("problemExamplesWrap").innerHTML = a.topProblems.map((p) => `<div class="problem-card"><h4>${escapeHtml(mapIssueLabel(p.problem, a))}<span class="pill">${p.frequency}</span></h4><ul>${p.examples.map((ex) => `<li>${escapeHtml(ex)}</li>`).join("")}</ul></div>`).join("");
+  byId("problemExamplesWrap").innerHTML = a.topProblems.map((p) => {
+    const examples = (p.examples || []).map((ex) => {
+      if (typeof ex === "string") {
+        return `<div class="problem-example-card"><div class="problem-summary">${escapeHtml(ex)}</div></div>`;
+      }
+      return `
+        <div class="problem-example-card">
+          <div class="problem-meta-row">
+            <span class="problem-meta-chip">${escapeHtml(t("conversationIdLabel"))}: ${escapeHtml(ex.conversationId || "-")}</span>
+            <span class="problem-meta-chip">${escapeHtml(t("turnsLabel"))}: ${escapeHtml(String(ex.turns ?? "-"))}</span>
+            <span class="problem-meta-chip">${escapeHtml(t("timeLabel"))}: ${escapeHtml(ex.time ? safeDay(ex.time) : "-")}</span>
+          </div>
+          <div class="problem-line"><strong>${escapeHtml(t("statusLabel"))}:</strong> ${escapeHtml(ex.status || "-")}</div>
+          <div class="problem-line"><strong>${escapeHtml(t("userMessageLabel"))}:</strong> ${escapeHtml(ex.user || "-")}</div>
+          <div class="problem-line"><strong>${escapeHtml(t("botResponseLabel"))}:</strong> ${escapeHtml(ex.bot || "-")}</div>
+          <div class="problem-summary"><strong>${escapeHtml(t("summaryLabel"))}:</strong> ${escapeHtml(ex.summary || t("noExampleText"))}</div>
+        </div>`;
+    }).join("");
+
+    return `
+      <div class="problem-card">
+        <h4>${escapeHtml(mapIssueLabel(p.problem, a))}<span class="pill">${p.frequency}</span></h4>
+        <div class="problem-subtitle">${escapeHtml(t("exampleConversation"))}</div>
+        <div class="problem-example-grid">${examples || `<div class="problem-example-card">${escapeHtml(t("noExampleText"))}</div>`}</div>
+      </div>
+    `;
+  }).join("");
 }
 
 function renderComparison() {
