@@ -143,6 +143,7 @@ const I18N = {
     statusLoadedFromDb: "Loaded {count} dataset(s) from database.",
     statusLoadingDefaultDb: "Loading default database...",
     statusDefaultDbMissing: "No default database source found.",
+    statusDefaultDbError: "Default database could not be loaded: {error}",
     statusAnalyzedFiles: "Analyzed {count} file(s).",
     statusUploadFailed: "Upload failed: {error}",
     clearConfirm: "You are about to clear the dataset(s). Are you sure?",
@@ -289,6 +290,7 @@ const I18N = {
     statusLoadedFromDb: "{count} dataset(s) geladen vanuit database.",
     statusLoadingDefaultDb: "Standaarddatabase wordt geladen...",
     statusDefaultDbMissing: "Geen standaarddatabasebron gevonden.",
+    statusDefaultDbError: "Standaarddatabase kon niet geladen worden: {error}",
     statusAnalyzedFiles: "{count} bestand(en) geanalyseerd.",
     statusUploadFailed: "Upload mislukt: {error}",
     clearConfirm: "Je staat op het punt de dataset(s) te wissen. Weet je het zeker?",
@@ -1933,11 +1935,17 @@ function saveSession() {
 async function ensureDefaultDatabaseLoaded() {
   if (state.datasets.length) return;
   setStatus(t("statusLoadingDefaultDb"));
+  let lastError = "";
   for (const source of DEFAULT_DB_SOURCES) {
     try {
       const response = await fetch(source, { cache: "no-store" });
       if (!response.ok) continue;
       const bytes = new Uint8Array(await response.arrayBuffer());
+      const sqliteError = detectInvalidSqliteBuffer(bytes);
+      if (sqliteError) {
+        lastError = `${source}: ${sqliteError}`;
+        continue;
+      }
       const datasets = await analyzeDbBufferToDatasets(bytes, source);
       if (!datasets.length) continue;
       state.datasets = datasets;
@@ -1948,9 +1956,13 @@ async function ensureDefaultDatabaseLoaded() {
       renderAll();
       setStatus(t("statusLoadedFromDb", { count: datasets.length }));
       return;
-    } catch {
-      // Try next configured source.
+    } catch (error) {
+      lastError = `${source}: ${error?.message || "Unknown load error"}`;
     }
+  }
+  if (lastError) {
+    setStatus(t("statusDefaultDbError", { error: lastError }));
+    return;
   }
   setStatus(t("statusDefaultDbMissing"));
 }
@@ -2241,7 +2253,26 @@ function getActiveDataset() {
 
 function setStatus(message) {
   const statusEl = byId("statusMessage");
-  if (statusEl) statusEl.textContent = message;
+  if (!statusEl) return;
+  statusEl.textContent = message || "";
+  statusEl.hidden = !message;
+}
+
+function detectInvalidSqliteBuffer(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 16) {
+    return "Received empty or invalid database payload";
+  }
+  const decoder = new TextDecoder("utf-8");
+  const headerText = decoder.decode(bytes.subarray(0, Math.min(bytes.length, 120))).trim();
+  if (headerText.startsWith("version https://git-lfs.github.com/spec/v1")) {
+    return "Git LFS pointer received instead of the real .db file";
+  }
+  const sqliteSignature = "SQLite format 3\u0000";
+  const rawHeader = decoder.decode(bytes.subarray(0, 16));
+  if (rawHeader !== sqliteSignature) {
+    return "File is not a valid SQLite database";
+  }
+  return "";
 }
 
 function byId(id) {
