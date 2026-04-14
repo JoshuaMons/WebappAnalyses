@@ -2128,10 +2128,7 @@ function saveSession() {
 }
 
 async function ensureDefaultDatabaseLoaded() {
-  if (state.datasets.length) {
-    const hasPreviewOnlyData = state.datasets.some((dataset) => !!dataset.analysis?.previewOnly);
-    if (!hasPreviewOnlyData) return;
-  }
+  if (state.datasets.length) return;
   setStatus(t("statusLoadingDefaultDb"));
   let lastError = "";
   for (const source of DEFAULT_DB_SOURCES) {
