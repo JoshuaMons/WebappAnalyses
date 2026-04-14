@@ -1,5 +1,10 @@
 const STORAGE_KEY = "supportAnalyticsSessionV2";
 const PERSISTENT_STORAGE_KEY = "supportAnalyticsPersistentV1";
+const UPLOADED_DB_CACHE = {
+  dbName: "supportAnalyticsUploadedDbV1",
+  storeName: "files",
+  key: "latest-uploaded-db"
+};
 const chartStore = {};
 const SQL_JS_WASM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/";
 const DEFAULT_DB_SOURCES = [
@@ -586,6 +591,7 @@ function clearData() {
   } catch {
     // Ignore storage cleanup failures.
   }
+  clearUploadedDbCache();
   renderDatasetSelect();
   renderAll();
   setStatus(t("clearDone"));
@@ -616,6 +622,7 @@ async function handleDbUpload() {
       setStatus(t("statusNoValidFiles"));
       return;
     }
+    await persistUploadedDbCache(bytes, file.name);
     state.datasets = datasets;
     rebuildUnifiedDataset();
     persistLastActiveTarget();
@@ -2177,6 +2184,8 @@ function saveSession() {
 
 async function ensureDefaultDatabaseLoaded() {
   if (state.datasets.length) return;
+  const cachedDbLoaded = await tryLoadCachedUploadedDatabase();
+  if (cachedDbLoaded) return;
   setStatus(t("statusLoadingDefaultDb"));
   let lastError = "";
   for (const source of DEFAULT_DB_SOURCES) {
@@ -2208,6 +2217,27 @@ async function ensureDefaultDatabaseLoaded() {
     return;
   }
   setStatus(t("statusDefaultDbMissing"));
+}
+
+async function tryLoadCachedUploadedDatabase() {
+  try {
+    const cached = await loadUploadedDbCache();
+    if (!cached || !(cached.bytes instanceof Uint8Array) || !cached.bytes.length) return false;
+    const sqliteError = detectInvalidSqliteBuffer(cached.bytes);
+    if (sqliteError) return false;
+    const datasets = await analyzeDbBufferToDatasets(cached.bytes, cached.name || "uploaded.db");
+    if (!datasets.length) return false;
+    state.datasets = datasets;
+    rebuildUnifiedDataset();
+    persistLastActiveTarget();
+    saveSession();
+    renderDatasetSelect();
+    renderAll();
+    setStatus(t("statusLoadedFromDb", { count: datasets.length }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function analyzeDbBufferToDatasets(bytes, sourceName) {
@@ -2505,6 +2535,78 @@ function setStatus(message) {
   if (!statusEl) return;
   statusEl.textContent = message || "";
   statusEl.hidden = !message;
+}
+
+function openUploadedDbCache() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("IndexedDB unavailable"));
+      return;
+    }
+    const request = indexedDB.open(UPLOADED_DB_CACHE.dbName, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(UPLOADED_DB_CACHE.storeName)) {
+        db.createObjectStore(UPLOADED_DB_CACHE.storeName);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("IndexedDB open failed"));
+  });
+}
+
+async function persistUploadedDbCache(bytes, fileName) {
+  try {
+    const db = await openUploadedDbCache();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(UPLOADED_DB_CACHE.storeName, "readwrite");
+      const store = tx.objectStore(UPLOADED_DB_CACHE.storeName);
+      const payload = {
+        name: String(fileName || "uploaded.db"),
+        bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+      };
+      store.put(payload, UPLOADED_DB_CACHE.key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error("IndexedDB write failed"));
+      tx.onabort = () => reject(tx.error || new Error("IndexedDB write aborted"));
+    });
+    db.close();
+  } catch {
+    // Cache persistence is best effort only.
+  }
+}
+
+async function loadUploadedDbCache() {
+  const db = await openUploadedDbCache();
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const tx = db.transaction(UPLOADED_DB_CACHE.storeName, "readonly");
+      const store = tx.objectStore(UPLOADED_DB_CACHE.storeName);
+      const req = store.get(UPLOADED_DB_CACHE.key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error || new Error("IndexedDB read failed"));
+    });
+    if (!data || !data.bytes) return null;
+    return {
+      name: String(data.name || "uploaded.db"),
+      bytes: new Uint8Array(data.bytes)
+    };
+  } finally {
+    db.close();
+  }
+}
+
+function clearUploadedDbCache() {
+  if (!window.indexedDB) return;
+  const request = indexedDB.open(UPLOADED_DB_CACHE.dbName, 1);
+  request.onsuccess = () => {
+    const db = request.result;
+    const tx = db.transaction(UPLOADED_DB_CACHE.storeName, "readwrite");
+    tx.objectStore(UPLOADED_DB_CACHE.storeName).delete(UPLOADED_DB_CACHE.key);
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => db.close();
+    tx.onabort = () => db.close();
+  };
 }
 
 async function copyTextToClipboard(text) {
