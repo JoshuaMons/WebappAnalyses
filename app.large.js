@@ -14,6 +14,11 @@ const LEGACY_STORAGE_KEYS = ["supportAnalyticsSessionV1"];
 const LANGUAGE_KEY = "supportAnalyticsLanguageV1";
 const API_KEY_SESSION_KEY = "supportAnalyticsOpenAiKeySessionV1";
 const RULES_STORAGE_KEY = "supportAnalyticsRulesV1";
+const TARGET_DATASET_FILES = [
+  { key: "essent cgny.csv", label: "Essent CGNY" },
+  { key: "essent data.csv", label: "Essent Data" },
+  { key: "essent genesys.csv", label: "Essent Genesys" }
+];
 
 const DEFAULT_RULES = {
   handoverKeywords: ["agent", "human", "handover", "transfer", "specialist"],
@@ -29,6 +34,8 @@ const I18N = {
     appSubtitle: "Conversation performance, handovers, failures, and issue insights",
     languageLabel: "Language",
     clearDataBtn: "Clear Data",
+    targetFilesTitle: "Target files",
+    targetFilesHint: "Only these 3 files are analyzed in Essent mode.",
     uploadLabel: "Upload datasets (CSV, XLSX, JSON)",
     analyzeUploadBtn: "Analyze Upload",
     aiToggle: "Enable AI-powered analysis (OpenAI GPT-5.2)",
@@ -68,7 +75,15 @@ const I18N = {
     datasetPerformanceComparison: "Dataset Performance Comparison",
     datasetTrendUploadOrder: "Week-over-Week Style Trend by Upload Order",
     datasetSummaryTable: "Dataset Summary Table",
+    compareSelectionTitle: "Comparison Selection",
+    compareModeLabel: "Mode",
+    compareModeAll3: "All 3 datasets",
+    compareModePair: "Choose 2 datasets",
+    compareLeftLabel: "Dataset A",
+    compareRightLabel: "Dataset B",
     statusSelectDataset: "Select at least one dataset file.",
+    statusFileIgnored: "Ignored file: {name}. Only the 3 Essent files are accepted.",
+    statusNoValidFiles: "No valid Essent files selected.",
     statusAnalyzingFile: "Analyzing {name}...",
     statusAnalyzedFiles: "Analyzed {count} file(s).",
     statusUploadFailed: "Upload failed: {error}",
@@ -138,6 +153,8 @@ const I18N = {
     appSubtitle: "Gespreksperformance, overdrachten, fouten en issue-inzichten",
     languageLabel: "Taal",
     clearDataBtn: "Data wissen",
+    targetFilesTitle: "Doelbestanden",
+    targetFilesHint: "Alleen deze 3 bestanden worden geanalyseerd in Essent-modus.",
     uploadLabel: "Upload datasets (CSV, XLSX, JSON)",
     analyzeUploadBtn: "Upload analyseren",
     aiToggle: "AI-analyse inschakelen (OpenAI GPT-5.2)",
@@ -177,7 +194,15 @@ const I18N = {
     datasetPerformanceComparison: "Dataset performance vergelijking",
     datasetTrendUploadOrder: "Trend per uploadvolgorde",
     datasetSummaryTable: "Dataset samenvattingstabel",
+    compareSelectionTitle: "Vergelijkingsselectie",
+    compareModeLabel: "Modus",
+    compareModeAll3: "Alle 3 datasets",
+    compareModePair: "Kies 2 datasets",
+    compareLeftLabel: "Dataset A",
+    compareRightLabel: "Dataset B",
     statusSelectDataset: "Selecteer minimaal één datasetbestand.",
+    statusFileIgnored: "Bestand genegeerd: {name}. Alleen de 3 Essent-bestanden zijn toegestaan.",
+    statusNoValidFiles: "Geen geldige Essent-bestanden geselecteerd.",
     statusAnalyzingFile: "Bezig met analyseren van {name}...",
     statusAnalyzedFiles: "{count} bestand(en) geanalyseerd.",
     statusUploadFailed: "Upload mislukt: {error}",
@@ -256,6 +281,11 @@ const state = {
     sortBy: "frequency_desc"
   },
   problemModalItems: [],
+  comparison: {
+    mode: "all3",
+    left: "",
+    right: ""
+  },
   table: {
     sortKey: null,
     sortDir: 1,
@@ -350,6 +380,22 @@ function bindEvents() {
       closeProblemModal();
     }
   });
+  byId("compareModeSelect").addEventListener("change", (e) => {
+    state.comparison.mode = e.target.value === "pair" ? "pair" : "all3";
+    saveSession();
+    renderComparisonSelectors();
+    renderComparison();
+  });
+  byId("compareLeftSelect").addEventListener("change", (e) => {
+    state.comparison.left = e.target.value || "";
+    saveSession();
+    renderComparison();
+  });
+  byId("compareRightSelect").addEventListener("change", (e) => {
+    state.comparison.right = e.target.value || "";
+    saveSession();
+    renderComparison();
+  });
 }
 
 function activateTab(tabId) {
@@ -363,17 +409,36 @@ async function handleUpload() {
     setStatus(t("statusSelectDataset"));
     return;
   }
+  let acceptedCount = 0;
   try {
     for (const file of files) {
+      const targetDef = getTargetFileDefinition(file.name);
+      if (!targetDef) {
+        setStatus(t("statusFileIgnored", { name: file.name }));
+        continue;
+      }
       setStatus(t("statusAnalyzingFile", { name: file.name }));
       const dataset = await analyzeFileToDataset(file);
-      state.datasets.push(dataset);
+      dataset.targetKey = targetDef.key;
+      dataset.targetLabel = targetDef.label;
+      const existingIdx = state.datasets.findIndex((d) => d.targetKey === targetDef.key);
+      if (existingIdx >= 0) {
+        state.datasets[existingIdx] = dataset;
+      } else {
+        state.datasets.push(dataset);
+      }
+      state.datasets.sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
       state.activeDatasetId = dataset.id;
+      acceptedCount += 1;
       saveSession();
       renderDatasetSelect();
       renderAll();
     }
-    setStatus(t("statusAnalyzedFiles", { count: files.length }));
+    if (!acceptedCount) {
+      setStatus(t("statusNoValidFiles"));
+      return;
+    }
+    setStatus(t("statusAnalyzedFiles", { count: acceptedCount }));
   } catch (error) {
     setStatus(t("statusUploadFailed", { error: error.message }));
   }
@@ -384,6 +449,7 @@ function clearData() {
   if (!ok) return;
   state.datasets = [];
   state.activeDatasetId = null;
+  state.comparison = { mode: "all3", left: "", right: "" };
   state.table.page = 1;
   sessionStorage.removeItem(STORAGE_KEY);
   renderDatasetSelect();
@@ -956,20 +1022,118 @@ function renderDatasetSelect() {
     opt.value = "";
     opt.textContent = t("noDatasetLoaded");
     sel.appendChild(opt);
+    byId("aiEnabled").checked = !!state.aiEnabled;
+    renderTargetFileStatus();
+    renderComparisonSelectors();
     return;
   }
   state.datasets.forEach((d) => {
     const opt = document.createElement("option");
     opt.value = d.id;
-    opt.textContent = `${d.name} (${d.analysis.rowCount.toLocaleString()} rows)`;
+    const label = d.targetLabel || d.name;
+    opt.textContent = `${label} (${d.analysis.rowCount.toLocaleString()} rows)`;
     sel.appendChild(opt);
   });
   if (!state.activeDatasetId) state.activeDatasetId = state.datasets[state.datasets.length - 1].id;
   sel.value = state.activeDatasetId;
   byId("aiEnabled").checked = !!state.aiEnabled;
+  renderTargetFileStatus();
+  renderComparisonSelectors();
+}
+
+function renderTargetFileStatus() {
+  const wrap = byId("targetFilesStatus");
+  if (!wrap) return;
+  const rows = TARGET_DATASET_FILES.map((target) => {
+    const dataset = state.datasets.find((d) => d.targetKey === target.key);
+    return {
+      file: target.key,
+      label: target.label,
+      loaded: dataset ? "yes" : "no",
+      rows: dataset ? dataset.analysis.rowCount : 0
+    };
+  });
+  renderTable(wrap, rows, ["label", "file", "loaded", "rows"]);
+}
+
+function renderComparisonSelectors() {
+  const modeSel = byId("compareModeSelect");
+  const leftSel = byId("compareLeftSelect");
+  const rightSel = byId("compareRightSelect");
+  if (!modeSel || !leftSel || !rightSel) return;
+
+  modeSel.value = state.comparison.mode === "pair" ? "pair" : "all3";
+  const loadedTargets = TARGET_DATASET_FILES
+    .map((target) => ({
+      ...target,
+      dataset: state.datasets.find((d) => d.targetKey === target.key)
+    }))
+    .filter((x) => x.dataset);
+
+  leftSel.innerHTML = "";
+  rightSel.innerHTML = "";
+  loadedTargets.forEach((item) => {
+    const leftOpt = document.createElement("option");
+    leftOpt.value = item.dataset.id;
+    leftOpt.textContent = item.label;
+    leftSel.appendChild(leftOpt);
+    const rightOpt = document.createElement("option");
+    rightOpt.value = item.dataset.id;
+    rightOpt.textContent = item.label;
+    rightSel.appendChild(rightOpt);
+  });
+
+  if (!loadedTargets.length) {
+    return;
+  }
+
+  if (!state.comparison.left || !loadedTargets.some((x) => x.dataset.id === state.comparison.left)) {
+    state.comparison.left = loadedTargets[0].dataset.id;
+  }
+  if (!state.comparison.right || !loadedTargets.some((x) => x.dataset.id === state.comparison.right)) {
+    state.comparison.right = loadedTargets[Math.min(1, loadedTargets.length - 1)].dataset.id;
+  }
+  if (state.comparison.left === state.comparison.right && loadedTargets.length > 1) {
+    state.comparison.right = loadedTargets.find((x) => x.dataset.id !== state.comparison.left).dataset.id;
+  }
+
+  leftSel.value = state.comparison.left;
+  rightSel.value = state.comparison.right;
+  const pairMode = state.comparison.mode === "pair";
+  leftSel.disabled = !pairMode;
+  rightSel.disabled = !pairMode;
+}
+
+function getTargetFileDefinition(fileName) {
+  const key = normalizeTargetFileKey(fileName);
+  return TARGET_DATASET_FILES.find((item) => item.key === key) || null;
+}
+
+function normalizeTargetFileKey(fileName) {
+  return String(fileName || "").trim().toLowerCase();
+}
+
+function getTargetOrder(targetKey) {
+  const idx = TARGET_DATASET_FILES.findIndex((item) => item.key === targetKey);
+  return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+}
+
+function getComparisonDatasets() {
+  if (!state.datasets.length) return [];
+  if (state.comparison.mode === "pair") {
+    const left = state.datasets.find((d) => d.id === state.comparison.left);
+    const right = state.datasets.find((d) => d.id === state.comparison.right);
+    const list = [];
+    if (left) list.push(left);
+    if (right && right.id !== (left && left.id)) list.push(right);
+    return list;
+  }
+  return state.datasets.filter((d) => !!d.targetKey).sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
 }
 
 function renderAll() {
+  renderTargetFileStatus();
+  renderComparisonSelectors();
   renderOverview();
   renderColumnTypes();
   renderQuality();
@@ -1326,14 +1490,15 @@ function resetRulesToDefault() {
 }
 
 function renderComparison() {
-  if (!state.datasets.length) {
+  const datasetsToCompare = getComparisonDatasets();
+  if (!datasetsToCompare.length) {
     byId("compareTableWrap").innerHTML = "";
     destroyChart("datasetCompareBar");
     destroyChart("datasetTrendLine");
     return;
   }
-  const summary = state.datasets.map((d, idx) => ({
-    dataset: d.name,
+  const summary = datasetsToCompare.map((d, idx) => ({
+    dataset: d.targetLabel || d.name,
     uploadedAt: safeDay(d.uploadedAt),
     rows: d.analysis.rowCount,
     conversations: d.analysis.totalConversations,
@@ -1401,9 +1566,14 @@ function loadSession() {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw);
-    state.datasets = Array.isArray(parsed.datasets) ? parsed.datasets : [];
+    state.datasets = Array.isArray(parsed.datasets) ? parsed.datasets.map((d) => hydrateTargetDataset(d)).filter(Boolean) : [];
     state.activeDatasetId = parsed.activeDatasetId || null;
     state.aiEnabled = !!parsed.aiEnabled;
+    if (parsed.comparison && typeof parsed.comparison === "object") {
+      state.comparison.mode = parsed.comparison.mode === "pair" ? "pair" : "all3";
+      state.comparison.left = parsed.comparison.left || "";
+      state.comparison.right = parsed.comparison.right || "";
+    }
     if (!state.datasets.find((d) => d.id === state.activeDatasetId) && state.datasets.length) {
       state.activeDatasetId = state.datasets[state.datasets.length - 1].id;
     }
@@ -1418,22 +1588,26 @@ function saveSession() {
     {
       datasets: recentDatasets.map((d) => compactDatasetForSession(d, 300, true)),
       activeDatasetId: state.activeDatasetId,
-      aiEnabled: state.aiEnabled
+      aiEnabled: state.aiEnabled,
+      comparison: state.comparison
     },
     {
       datasets: recentDatasets.map((d) => compactDatasetForSession(d, 50, true)),
       activeDatasetId: state.activeDatasetId,
-      aiEnabled: state.aiEnabled
+      aiEnabled: state.aiEnabled,
+      comparison: state.comparison
     },
     {
       datasets: recentDatasets.map((d) => compactDatasetForSession(d, 0, false)),
       activeDatasetId: state.activeDatasetId,
-      aiEnabled: state.aiEnabled
+      aiEnabled: state.aiEnabled,
+      comparison: state.comparison
     },
     {
       datasets: [],
       activeDatasetId: null,
-      aiEnabled: state.aiEnabled
+      aiEnabled: state.aiEnabled,
+      comparison: state.comparison
     }
   ];
 
@@ -1467,6 +1641,8 @@ function compactDatasetForSession(dataset, rowLimit, includeRows) {
   return {
     id: dataset.id,
     name: dataset.name,
+    targetKey: dataset.targetKey || "",
+    targetLabel: dataset.targetLabel || "",
     uploadedAt: dataset.uploadedAt,
     rows,
     analysis: {
@@ -1495,6 +1671,19 @@ function compactDatasetForSession(dataset, rowLimit, includeRows) {
       previewOnly: !!analysis.previewOnly,
       notes
     }
+  };
+}
+
+function hydrateTargetDataset(dataset) {
+  if (!dataset || typeof dataset !== "object") return null;
+  const byKey = getTargetFileDefinition(dataset.targetKey || "");
+  const byName = getTargetFileDefinition(dataset.name || "");
+  const targetDef = byKey || byName;
+  if (!targetDef) return null;
+  return {
+    ...dataset,
+    targetKey: targetDef.key,
+    targetLabel: targetDef.label
   };
 }
 

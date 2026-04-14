@@ -28,6 +28,11 @@
 
   <section class="panel uploader">
     <div class="uploader-row">
+      <strong data-i18n="targetFilesTitle">Target files</strong>
+      <span class="muted" data-i18n="targetFilesHint">Only these 3 files are analyzed in Essent mode.</span>
+    </div>
+    <div id="targetFilesStatus" class="table-wrap"></div>
+    <div class="uploader-row">
       <label for="datasetInput" class="file-label" data-i18n="uploadLabel">Upload datasets (CSV, XLSX, JSON)</label>
       <input id="datasetInput" type="file" accept=".csv,.json,.xlsx,.xls" multiple />
       <button id="uploadBtn" class="btn primary" data-i18n="analyzeUploadBtn">Analyze Upload</button>
@@ -221,6 +226,20 @@
     </section>
 
     <section id="comparisonTab" class="tab-content">
+      <article class="panel">
+        <h3 data-i18n="compareSelectionTitle">Comparison Selection</h3>
+        <div class="controls-inline">
+          <label for="compareModeSelect" data-i18n="compareModeLabel">Mode</label>
+          <select id="compareModeSelect">
+            <option value="all3" data-i18n="compareModeAll3">All 3 datasets</option>
+            <option value="pair" data-i18n="compareModePair">Choose 2 datasets</option>
+          </select>
+          <label for="compareLeftSelect" data-i18n="compareLeftLabel">Dataset A</label>
+          <select id="compareLeftSelect"></select>
+          <label for="compareRightSelect" data-i18n="compareRightLabel">Dataset B</label>
+          <select id="compareRightSelect"></select>
+        </div>
+      </article>
       <article class="panel">
         <h3 data-i18n="datasetPerformanceComparison">Dataset Performance Comparison</h3>
         <canvas id="datasetCompareBar"></canvas>
