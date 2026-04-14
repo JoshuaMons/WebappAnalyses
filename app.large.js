@@ -120,6 +120,9 @@ const I18N = {
     intentHandoverPageInfo: "Page {page} of {total}",
     intentHandoverGoToPageLabel: "Go to page",
     intentHandoverGoToPageBtn: "Go",
+    copyCellHint: "Click to copy value",
+    copiedValue: "Value copied to clipboard.",
+    copyFailed: "Copy failed. Clipboard access is unavailable.",
     intentHandoverModalTitle: "Handover Contact Detail",
     intentHandoverCardContact: "ContactID",
     intentHandoverCardConversations: "Conversation IDs",
@@ -279,6 +282,9 @@ const I18N = {
     intentHandoverPageInfo: "Pagina {page} van {total}",
     intentHandoverGoToPageLabel: "Ga naar pagina",
     intentHandoverGoToPageBtn: "Ga",
+    copyCellHint: "Klik om waarde te kopieren",
+    copiedValue: "Waarde gekopieerd naar klembord.",
+    copyFailed: "Kopieren mislukt. Klembordtoegang is niet beschikbaar.",
     intentHandoverModalTitle: "Handover Contactdetail",
     intentHandoverCardContact: "ContactID",
     intentHandoverCardConversations: "Conversation IDs",
@@ -1721,7 +1727,9 @@ function openIntentHandoverModal(itemId) {
   const tableRows = dataEntries.map(([key, value]) => `
     <tr>
       <td>${escapeHtml(String(key))}</td>
-      <td>${escapeHtml(value == null ? "-" : String(value))}</td>
+      <td class="copyable-cell" data-copy-value="${encodeURIComponent(value == null ? "-" : String(value))}" title="${escapeHtml(t("copyCellHint"))}">
+        ${escapeHtml(value == null ? "-" : String(value))}
+      </td>
     </tr>
   `).join("");
   body.innerHTML = `
@@ -1738,6 +1746,14 @@ function openIntentHandoverModal(itemId) {
       </table>
     </div>
   `;
+  body.querySelectorAll("[data-copy-value]").forEach((cell) => {
+    cell.addEventListener("click", async () => {
+      const encoded = cell.getAttribute("data-copy-value") || "";
+      const text = decodeURIComponent(encoded);
+      const copied = await copyTextToClipboard(text);
+      setStatus(copied ? t("copiedValue") : t("copyFailed"));
+    });
+  });
   modal.hidden = false;
   backdrop.hidden = false;
 }
@@ -2444,6 +2460,33 @@ function setStatus(message) {
   if (!statusEl) return;
   statusEl.textContent = message || "";
   statusEl.hidden = !message;
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text ?? "");
+  if (!value) return false;
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Fall back to execCommand copy.
+    }
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.setAttribute("readonly", "true");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return !!ok;
+  } catch {
+    return false;
+  }
 }
 
 function detectInvalidSqliteBuffer(bytes) {

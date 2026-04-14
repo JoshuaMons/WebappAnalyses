@@ -373,6 +373,14 @@ ul {
   max-height: calc(100vh - 8rem);
 }
 
+.copyable-cell {
+  cursor: copy;
+}
+
+.copyable-cell:hover {
+  background: rgba(92, 140, 255, 0.14);
+}
+
 .pill {
   display: inline-block;
   margin-left: 0.35rem;
