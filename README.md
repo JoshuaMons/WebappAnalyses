@@ -74,10 +74,5 @@ python -m http.server 8080
 
 Set `OPENAI_API_KEY` in Vercel project environment variables to use the server-side AI proxy endpoint (`/api/ai-enrich`) and avoid browser-side network/CORS issues.
 
-## Deploy on Render
-
-1. Create a new **Static Site** from this folder/repo.
-2. Publish directory: `.`
-3. Build command: none.
 
 `render.yaml` is included for one-click infra config.
