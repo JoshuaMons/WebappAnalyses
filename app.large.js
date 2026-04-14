@@ -1741,8 +1741,8 @@ function openIntentHandoverModal(itemId) {
     </tr>
   `).join("");
   const relatedRows = collectRelatedRowsForIntentDetail(detail);
-  const inputTextValues = collectDistinctFieldValues(relatedRows, "INPUTTEXT_anonymized");
-  const customerInputValues = collectDistinctFieldValues(relatedRows, "CUSTOMER_INPUT_TEXT_anonymized");
+  const inputTextValues = collectFieldValues(relatedRows, "INPUTTEXT_anonymized");
+  const customerInputValues = collectFieldValues(relatedRows, "CUSTOMER_INPUT_TEXT_anonymized");
   const inputTextItems = inputTextValues.length
     ? inputTextValues.map((value) => `<li>${escapeHtml(value)}</li>`).join("")
     : `<li>${escapeHtml(t("intentHandoverNoInputValues"))}</li>`;
@@ -1791,22 +1791,16 @@ function openIntentHandoverModal(itemId) {
 function collectRelatedRowsForIntentDetail(detail) {
   const dataset = getActiveDataset();
   const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
-  const directMatches = rows.filter((row) => String(row[INTENT_HANDOVER_CONFIG.contactIdColumn] || "").trim() === detail.contactId);
-  if (directMatches.length) return directMatches;
-  if (detail.conversationId && detail.conversationId !== "-") {
-    return rows.filter((row) => resolveHandoverConversationId(row) === detail.conversationId);
-  }
-  return rows;
+  const contactId = String(detail?.contactId || "").trim().toLowerCase();
+  if (!contactId) return [];
+  return rows.filter((row) => String(row?.[INTENT_HANDOVER_CONFIG.contactIdColumn] || "").trim().toLowerCase() === contactId);
 }
 
-function collectDistinctFieldValues(rows, fieldName) {
+function collectFieldValues(rows, fieldName) {
   const values = [];
-  const seen = new Set();
   rows.forEach((row) => {
     const value = String(row?.[fieldName] ?? "").trim();
     if (!value) return;
-    if (seen.has(value)) return;
-    seen.add(value);
     values.push(value);
   });
   return values;
