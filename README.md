@@ -4,9 +4,9 @@ Interactive dark-theme dashboard for support conversation analytics.
 
 ## Features
 
-- Upload and analyze `CSV`, `Excel` (`.xlsx/.xls`), and `JSON` datasets
-- Large dataset mode for big CSV files (streaming analysis, low-memory preview table)
-- Session-only storage in browser memory (`sessionStorage`)
+- Auto-load support database from `/api/live-db` (online source) with fallback to local `/data/fontys_cgny.db`
+- SQLite `.db` analysis using `sql.js`
+- Persistent browser restore via `localStorage` + `sessionStorage`
 - Multi-tab analytics UI:
   - Overview
   - Data Explorer
@@ -20,13 +20,32 @@ Interactive dark-theme dashboard for support conversation analytics.
 - Optional AI enrichment with OpenAI `gpt-5.2` (can be toggled off for sensitive data)
 - Working clear-data flow with confirmation warning
 
+## Online Database Setup (Vercel / Render)
+
+1. Upload your `.db` file to a public file host (for example Vercel Blob public URL, R2 public URL, S3 public URL, etc.).
+2. Set environment variable:
+
+   - `SUPPORT_ANALYTICS_DB_URL=https://<your-public-db-url>/fontys_cgny.db`
+
+3. Redeploy.
+
+The dashboard first requests `/api/live-db`, and that API route proxies your online database URL.  
+If `SUPPORT_ANALYTICS_DB_URL` is not set, the app falls back to local files (`/data/fontys_cgny.db` then `/fontys_cgny.db`).
+
+## Convert SQLite To Uploadable SQL Dump
+
+Use the included conversion script:
+
+```bash
+python scripts/export_sqlite_to_sql.py --input data/fontys_cgny.db --output "C:\Users\Josh\Downloads\fontys_cgny.sql.gz" --gzip
+```
+
+You can then upload the `.sql`/`.sql.gz` dump to your managed database host/import tool.
+
 ## Large Dataset Notes (2M+ rows)
 
-- For very large files, use `CSV` for best performance.
-- CSV uploads are streamed and analyzed in chunks with PapaParse worker mode to avoid loading all rows into browser memory and keep the UI responsive.
-- The Data Explorer shows a preview slice for large files while analytics are computed from the full stream.
-- Session restore stores a compact preview for very large datasets to avoid browser storage quota issues.
-- For very large `Excel`/`JSON` files, convert to CSV first.
+- For very large tables, keep database indexing/partitioning on your hosted DB side.
+- The dashboard renders from analyzed rows and keeps browser storage compacted automatically.
 
 ## Run locally
 
