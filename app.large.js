@@ -79,6 +79,7 @@ const I18N = {
     activeDatasetLabel: "Active dataset",
     persistLabel: "Stored in session memory until browser closes",
     tabOverview: "Overview",
+    tabDbUpload: "Database Upload",
     tabExplorer: "Data Explorer",
     tabHandovers: "Handovers",
     tabIntentHandovers: "Intent Handovers",
@@ -135,6 +136,12 @@ const I18N = {
     compareModePair: "Choose 2 datasets",
     compareLeftLabel: "Dataset A",
     compareRightLabel: "Dataset B",
+    dbUploadTitle: "Upload Database (.db)",
+    dbUploadHint: "Upload a SQLite database file and load it into the dashboard.",
+    dbUploadInputLabel: "Database file",
+    dbUploadAnalyzeBtn: "Upload & Analyze",
+    dbUploadCurrent: "Currently loaded source: {name} ({rows} rows)",
+    dbUploadNoDataset: "No uploaded database loaded yet.",
     statusSelectDataset: "Select at least one dataset file.",
     statusQuickSwapNoDataset: "Upload at least one Essent dataset first.",
     statusQuickSwapDone: "Switched to: {name}.",
@@ -226,6 +233,7 @@ const I18N = {
     activeDatasetLabel: "Actieve dataset",
     persistLabel: "Opgeslagen in sessiegeheugen totdat de browser sluit",
     tabOverview: "Overzicht",
+    tabDbUpload: "Database Upload",
     tabExplorer: "Data Verkenner",
     tabHandovers: "Overdrachten",
     tabIntentHandovers: "Intent Overdrachten",
@@ -282,6 +290,12 @@ const I18N = {
     compareModePair: "Kies 2 datasets",
     compareLeftLabel: "Dataset A",
     compareRightLabel: "Dataset B",
+    dbUploadTitle: "Database uploaden (.db)",
+    dbUploadHint: "Upload een SQLite databasebestand en laad het direct in het dashboard.",
+    dbUploadInputLabel: "Databasebestand",
+    dbUploadAnalyzeBtn: "Uploaden & analyseren",
+    dbUploadCurrent: "Huidige geladen bron: {name} ({rows} rijen)",
+    dbUploadNoDataset: "Nog geen geuploade database geladen.",
     statusSelectDataset: "Selecteer minimaal één datasetbestand.",
     statusQuickSwapNoDataset: "Upload eerst minimaal één Essent-dataset.",
     statusQuickSwapDone: "Gewisseld naar: {name}.",
@@ -418,6 +432,7 @@ function bindEvents() {
     if (el) el.addEventListener(event, handler);
   };
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
+  on("dbUploadAnalyzeBtn", "click", handleDbUpload);
   on("activeDatasetSelect", "change", (e) => {
     state.activeDatasetId = e.target.value || null;
     persistLastActiveTarget();
@@ -521,6 +536,44 @@ function clearData() {
   renderDatasetSelect();
   renderAll();
   setStatus(t("clearDone"));
+}
+
+async function handleDbUpload() {
+  const input = byId("dbUploadInput");
+  const file = input?.files?.[0];
+  if (!file) {
+    setStatus(t("statusNeedDbFile"));
+    return;
+  }
+  if (!String(file.name || "").toLowerCase().endsWith(".db")) {
+    setStatus(t("statusNeedDbFile"));
+    return;
+  }
+
+  setStatus(t("statusAnalyzingFile", { name: file.name }));
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const sqliteError = detectInvalidSqliteBuffer(bytes);
+    if (sqliteError) {
+      setStatus(t("statusUploadFailed", { error: sqliteError }));
+      return;
+    }
+    const datasets = await analyzeDbBufferToDatasets(bytes, file.name);
+    if (!datasets.length) {
+      setStatus(t("statusNoValidFiles"));
+      return;
+    }
+    state.datasets = datasets;
+    state.activeDatasetId = datasets[0].id;
+    persistLastActiveTarget();
+    saveSession();
+    renderDatasetSelect();
+    renderAll();
+    setStatus(t("statusLoadedFromDb", { count: datasets.length }));
+    renderDbUploadTab();
+  } catch (error) {
+    setStatus(t("statusUploadFailed", { error: error?.message || "Unknown error" }));
+  }
 }
 
 function parseAndAnalyzeCsvStream(file) {
@@ -1216,6 +1269,10 @@ function renderActiveTab(tabId) {
     renderOverview();
     return;
   }
+  if (activeTab === "dbUploadTab") {
+    renderDbUploadTab();
+    return;
+  }
   if (activeTab === "dataExplorerTab") {
     renderColumnTypes();
     renderQuality();
@@ -1246,6 +1303,20 @@ function renderActiveTab(tabId) {
     return;
   }
   renderOverview();
+}
+
+function renderDbUploadTab() {
+  const info = byId("dbUploadCurrentInfo");
+  if (!info) return;
+  const active = getActiveDataset();
+  if (!active) {
+    info.textContent = t("dbUploadNoDataset");
+    return;
+  }
+  info.textContent = t("dbUploadCurrent", {
+    name: active.name || active.targetLabel || t("noDatasetLoaded"),
+    rows: Number(active.analysis?.rowCount || 0).toLocaleString()
+  });
 }
 
 function renderOverview() {
