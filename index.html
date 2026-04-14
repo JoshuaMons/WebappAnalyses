@@ -27,6 +27,7 @@
     <button class="tab-btn active" data-tab="overviewTab" data-i18n="tabOverview">Overview</button>
     <button class="tab-btn" data-tab="dataExplorerTab" data-i18n="tabExplorer">Data Explorer</button>
     <button class="tab-btn" data-tab="handoversTab" data-i18n="tabHandovers">Handovers</button>
+    <button class="tab-btn" data-tab="intentHandoversTab" data-i18n="tabIntentHandovers">Intent Handovers</button>
     <button class="tab-btn" data-tab="problemsTab" data-i18n="tabProblems">Problem Analysis</button>
     <button class="tab-btn" data-tab="aiAnalysisTab" data-i18n="tabAiAnalysis">AI Analysis</button>
     <button class="tab-btn" data-tab="rulesTab" data-i18n="tabRules">Detection Rules</button>
@@ -91,6 +92,17 @@
           <span id="handoverFilterInfo" class="muted"></span>
         </div>
         <div id="handoverTableWrap" class="table-wrap"></div>
+      </article>
+    </section>
+
+    <section id="intentHandoversTab" class="tab-content">
+      <article class="panel">
+        <h3 data-i18n="intentHandoversTitle">MAIN_INTENT Handover Overview</h3>
+        <div class="controls-inline">
+          <input id="intentHandoverSearchInput" type="text" data-i18n-placeholder="intentHandoverSearchPlaceholder" placeholder="Search by ContactID or ConversationID..." />
+          <span id="intentHandoverSummary" class="muted"></span>
+        </div>
+        <div id="intentHandoverCardsWrap" class="problem-example-grid"></div>
       </article>
     </section>
 
@@ -232,6 +244,14 @@
       <button id="problemModalCloseBtn" class="btn" data-i18n="closeBtn">Close</button>
     </div>
     <div id="problemDetailBody" class="modal-body"></div>
+  </div>
+  <div id="intentHandoverModalBackdrop" class="modal-backdrop" hidden></div>
+  <div id="intentHandoverDetailModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="intentHandoverModalTitle" hidden>
+    <div class="modal-header">
+      <h3 id="intentHandoverModalTitle" data-i18n="intentHandoverModalTitle">Handover Contact Detail</h3>
+      <button id="intentHandoverModalCloseBtn" class="btn" data-i18n="closeBtn">Close</button>
+    </div>
+    <div id="intentHandoverModalBody" class="modal-body"></div>
   </div>
   <p id="statusMessage" class="status" hidden></p>
 </body>

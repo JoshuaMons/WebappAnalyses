@@ -49,6 +49,7 @@ const I18N = {
     tabOverview: "Overview",
     tabExplorer: "Data Explorer",
     tabHandovers: "Handovers",
+    tabIntentHandovers: "Intent Handovers",
     tabProblems: "Problem Analysis",
     tabAiAnalysis: "AI Analysis",
     tabRules: "Detection Rules",
@@ -78,6 +79,14 @@ const I18N = {
     chartHandoversOverTime: "Handovers Over Time",
     chartHandoversByCategory: "Handovers by Issue Category",
     handoverCases: "Handover Cases",
+    intentHandoversTitle: "MAIN_INTENT Handover Overview",
+    intentHandoverSearchPlaceholder: "Search by ContactID or ConversationID...",
+    intentHandoverSummary: "{shown} shown of {total} unique contacts",
+    intentHandoverModalTitle: "Handover Contact Detail",
+    intentHandoverCardContact: "ContactID",
+    intentHandoverCardConversations: "Conversation IDs",
+    intentHandoverCardRows: "Rows",
+    intentHandoverCardTimespan: "Timespan",
     handoverSearchPlaceholder: "Search handovers...",
     handoverReasonFilterLabel: "Reason",
     handoverReasonAll: "All reasons",
@@ -184,6 +193,7 @@ const I18N = {
     tabOverview: "Overzicht",
     tabExplorer: "Data Verkenner",
     tabHandovers: "Overdrachten",
+    tabIntentHandovers: "Intent Overdrachten",
     tabProblems: "Probleemanalyse",
     tabAiAnalysis: "AI Analyse",
     tabRules: "Detectieregels",
@@ -213,6 +223,14 @@ const I18N = {
     chartHandoversOverTime: "Overdrachten over tijd",
     chartHandoversByCategory: "Overdrachten per categorie",
     handoverCases: "Overdrachtsgevallen",
+    intentHandoversTitle: "MAIN_INTENT Handover Overzicht",
+    intentHandoverSearchPlaceholder: "Zoek op ContactID of ConversationID...",
+    intentHandoverSummary: "{shown} zichtbaar van {total} unieke contacten",
+    intentHandoverModalTitle: "Handover Contactdetail",
+    intentHandoverCardContact: "ContactID",
+    intentHandoverCardConversations: "Conversation IDs",
+    intentHandoverCardRows: "Rijen",
+    intentHandoverCardTimespan: "Tijdspanne",
     handoverSearchPlaceholder: "Zoek in overdrachten...",
     handoverReasonFilterLabel: "Reden",
     handoverReasonAll: "Alle redenen",
@@ -317,6 +335,10 @@ const state = {
     search: "",
     reason: "all"
   },
+  intentHandoverView: {
+    search: ""
+  },
+  intentHandoverModalItems: [],
   problemModalItems: [],
   comparison: {
     mode: "all3",
@@ -397,15 +419,22 @@ function bindEvents() {
     state.handoverView.reason = String(e.target.value || "all");
     renderHandovers();
   });
+  on("intentHandoverSearchInput", "input", (e) => {
+    state.intentHandoverView.search = String(e.target.value || "").trim().toLowerCase();
+    renderIntentHandovers();
+  });
   on("problemSortSelect", "change", (e) => {
     state.problemView.sortBy = e.target.value || "frequency_desc";
     renderProblems();
   });
   on("problemModalCloseBtn", "click", closeProblemModal);
   on("problemModalBackdrop", "click", closeProblemModal);
+  on("intentHandoverModalCloseBtn", "click", closeIntentHandoverModal);
+  on("intentHandoverModalBackdrop", "click", closeIntentHandoverModal);
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeProblemModal();
+      closeIntentHandoverModal();
     }
   });
   on("compareModeSelect", "change", (e) => {
@@ -1147,6 +1176,10 @@ function renderActiveTab(tabId) {
     renderHandovers();
     return;
   }
+  if (activeTab === "intentHandoversTab") {
+    renderIntentHandovers();
+    return;
+  }
   if (activeTab === "problemsTab") {
     renderProblems();
     return;
@@ -1357,6 +1390,155 @@ function renderHandovers() {
       total: rows.length.toLocaleString()
     });
   }
+}
+
+function renderIntentHandovers() {
+  const dataset = getActiveDataset();
+  const wrap = byId("intentHandoverCardsWrap");
+  const summaryEl = byId("intentHandoverSummary");
+  const searchInput = byId("intentHandoverSearchInput");
+  if (!wrap || !summaryEl) return;
+  if (!dataset) {
+    wrap.innerHTML = `<p class="muted">${escapeHtml(t("noDataAvailable"))}</p>`;
+    summaryEl.textContent = t("intentHandoverSummary", { shown: 0, total: 0 });
+    return;
+  }
+
+  const groups = buildMainIntentHandoverGroups(dataset.rows || []);
+  const search = String(state.intentHandoverView.search || "").trim().toLowerCase();
+  if (searchInput) searchInput.value = state.intentHandoverView.search || "";
+  const filtered = !search
+    ? groups
+    : groups.filter((group) => {
+        if (group.contactId.toLowerCase().includes(search)) return true;
+        return group.conversationIds.some((id) => id.toLowerCase().includes(search));
+      });
+
+  state.intentHandoverModalItems = filtered;
+  wrap.innerHTML = filtered.map((group, idx) => `
+    <article class="problem-example-card intent-handover-card" data-intent-handover-id="${idx}">
+      <div class="problem-meta-row">
+        <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardContact"))}: ${escapeHtml(group.contactId)}</span>
+        <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardRows"))}: ${escapeHtml(String(group.rowCount))}</span>
+      </div>
+      <div class="problem-line"><strong>${escapeHtml(t("intentHandoverCardConversations"))}:</strong> ${escapeHtml(group.conversationIds.slice(0, 3).join(", ") || "-")}</div>
+      <div class="problem-summary"><strong>${escapeHtml(t("intentHandoverCardTimespan"))}:</strong> ${escapeHtml(`${safeDay(group.firstTime)} - ${safeDay(group.lastTime)}`)}</div>
+    </article>
+  `).join("");
+
+  summaryEl.textContent = t("intentHandoverSummary", {
+    shown: filtered.length.toLocaleString(),
+    total: groups.length.toLocaleString()
+  });
+
+  wrap.querySelectorAll(".intent-handover-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      openIntentHandoverModal(Number(card.getAttribute("data-intent-handover-id")));
+    });
+  });
+}
+
+function buildMainIntentHandoverGroups(rows) {
+  const map = new Map();
+  rows.forEach((row, idx) => {
+    const intent = String(row.MAIN_INTENT || "").trim().toLowerCase();
+    if (intent !== "handover") return;
+    const contactIdRaw = String(row.CONTACTID || "").trim();
+    const fallbackId = String(row.CGNY_SESSION_ID || row.CGNY_CONVERSATION_ID || `missing-${idx}`).trim();
+    const contactId = contactIdRaw || fallbackId || `missing-${idx}`;
+    const timestamp = isDatetime(row.TIMESTAMP) ? new Date(row.TIMESTAMP).toISOString() : new Date().toISOString();
+    const conversationId = String(row.CGNY_CONVERSATION_ID || row.CGNY_SESSION_ID || "-").trim() || "-";
+
+    if (!map.has(contactId)) {
+      map.set(contactId, {
+        contactId,
+        rowCount: 0,
+        firstTime: timestamp,
+        lastTime: timestamp,
+        conversationIds: new Set(),
+        rows: []
+      });
+    }
+    const group = map.get(contactId);
+    group.rowCount += 1;
+    group.firstTime = group.firstTime < timestamp ? group.firstTime : timestamp;
+    group.lastTime = group.lastTime > timestamp ? group.lastTime : timestamp;
+    group.conversationIds.add(conversationId);
+    group.rows.push({
+      timestamp: row.TIMESTAMP || "-",
+      contactId: row.CONTACTID || "-",
+      conversationId,
+      mainIntent: row.MAIN_INTENT || "-",
+      intent: row.INTENT || "-",
+      channel: row.CHANNEL || "-",
+      execution: row.EXECUTION ?? "-",
+      executionTime: row.EXECUTIONTIME ?? "-",
+      inputText: row.INPUTTEXT_anonymized || "",
+      customerInput: row.CUSTOMER_INPUT_TEXT_anonymized || "",
+      unrecognizedQuestion: row.UNRECOGNIZED_QUESTION_anonymized || "",
+      handoverQuestion: row.HANDOVER_QUESTION_anonymized || ""
+    });
+  });
+
+  return Array.from(map.values())
+    .map((group) => ({
+      ...group,
+      conversationIds: Array.from(group.conversationIds),
+      rows: group.rows.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)))
+    }))
+    .sort((a, b) => b.rowCount - a.rowCount);
+}
+
+function openIntentHandoverModal(itemId) {
+  const detail = state.intentHandoverModalItems[itemId];
+  if (!detail) return;
+  const modal = byId("intentHandoverDetailModal");
+  const backdrop = byId("intentHandoverModalBackdrop");
+  const body = byId("intentHandoverModalBody");
+  if (!modal || !backdrop || !body) return;
+
+  const header = `
+    <div class="problem-meta-row">
+      <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardContact"))}: ${escapeHtml(detail.contactId)}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardRows"))}: ${escapeHtml(String(detail.rowCount))}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardConversations"))}: ${escapeHtml(String(detail.conversationIds.length))}</span>
+    </div>
+  `;
+  const tableRows = detail.rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(String(row.timestamp))}</td>
+      <td>${escapeHtml(String(row.conversationId))}</td>
+      <td>${escapeHtml(String(row.intent))}</td>
+      <td>${escapeHtml(String(row.channel))}</td>
+      <td>${escapeHtml(String(row.inputText || row.customerInput || row.handoverQuestion || "-"))}</td>
+    </tr>
+  `).join("");
+  body.innerHTML = `
+    ${header}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>${escapeHtml(t("timeLabel"))}</th>
+            <th>${escapeHtml(t("conversationIdLabel"))}</th>
+            <th>${escapeHtml("Intent")}</th>
+            <th>${escapeHtml("Channel")}</th>
+            <th>${escapeHtml(t("summaryLabel"))}</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>
+  `;
+  modal.hidden = false;
+  backdrop.hidden = false;
+}
+
+function closeIntentHandoverModal() {
+  const modal = byId("intentHandoverDetailModal");
+  const backdrop = byId("intentHandoverModalBackdrop");
+  if (modal) modal.hidden = true;
+  if (backdrop) backdrop.hidden = true;
 }
 
 function renderProblems() {
