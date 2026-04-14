@@ -639,11 +639,12 @@ function ingestRow(ctx, row) {
   }
 
   conv.turns += 1;
-  conv.resolved = conv.resolved || /\bresolved|closed|solved|completed\b/.test(text);
-  conv.escalated = conv.escalated || state.regexes.escalationRegex.test(text);
+  const goalText = extractGoalText(row, ctx.fields);
+  conv.resolved = conv.resolved || detectResolvedSignal(text, goalText);
+  conv.escalated = conv.escalated || detectEscalationSignal(text, goalText, row, ctx.fields);
   conv.handoverKeyword = conv.handoverKeyword || state.regexes.handoverRegex.test(text);
   conv.negative = conv.negative || state.regexes.negativeRegex.test(text);
-  conv.fallback = conv.fallback || state.regexes.fallbackRegex.test(text);
+  conv.fallback = conv.fallback || detectFallbackSignal(text, row, ctx.fields);
   if (ctx.fields.userMessage) {
     const msg = normalizeSentence(row[ctx.fields.userMessage]);
     if (msg) {
@@ -657,14 +658,15 @@ function ingestRow(ctx, row) {
 }
 
 function buildRowAsConversation(row, text, category, fields) {
+  const goalText = extractGoalText(row, fields);
   return {
     id: String(row[fields?.conversationId] ?? `row-${Math.random().toString(36).slice(2, 8)}`),
     turns: 1,
-    resolved: /\bresolved|closed|solved|completed\b/.test(text),
-    escalated: state.regexes.escalationRegex.test(text),
+    resolved: detectResolvedSignal(text, goalText),
+    escalated: detectEscalationSignal(text, goalText, row, fields),
     handoverKeyword: state.regexes.handoverRegex.test(text),
     negative: state.regexes.negativeRegex.test(text),
-    fallback: state.regexes.fallbackRegex.test(text),
+    fallback: detectFallbackSignal(text, row, fields),
     repeated: false,
     category,
     firstTime: inferRowTime(row, fields),
@@ -864,21 +866,55 @@ function normalizeObjectRowHeaders(rowObj) {
 }
 
 function detectConversationFields(columns) {
+  const columnSet = new Set(columns);
+  const has = (name) => columnSet.has(name);
   const pick = (patterns) => columns.find((c) => patterns.some((p) => p.test(c.toLowerCase())));
+  const pickExact = (names) => names.find((name) => has(name)) || null;
   return {
-    conversationId: pick([/conversation.*id/, /^conv_id$/, /^ticket/, /thread.*id/, /^id$/]),
-    userMessage: pick([/user.*message/, /customer.*message/, /question/, /user_text/, /^message$/]),
+    conversationId: pickExact(["CGNY_SESSION_ID", "CONVERSATION_ID", "CGNY_CONVERSATION_ID"]) || pick([/session.*id/, /conversation.*id/, /^conv_id$/, /^ticket/, /thread.*id$/, /^id$/]),
+    userMessage: pickExact(["CUSTOMER_INPUT_TEXT_anonymized", "INPUTTEXT_anonymized", "UNRECOGNIZED_QUESTION_anonymized"]) || pick([/user.*message/, /customer.*message/, /customer.*input/, /inputtext/, /question/, /user_text/, /^message$/]),
     botResponse: pick([/bot.*response/, /assistant.*response/, /agent.*response/, /reply/, /response/]),
-    timestamp: pick([/timestamp/, /created.*at/, /time/, /date/]),
-    status: pick([/status/, /resolved/, /escalat/, /outcome/]),
-    escalationFlag: pick([/escalat/, /handover/, /human/, /agent_required/, /transfer/]),
-    category: pick([/category/, /intent/, /topic/, /issue/])
+    timestamp: pickExact(["TIMESTAMP", "STARTEDAT"]) || pick([/timestamp/, /created.*at/, /time/, /date/]),
+    status: pickExact(["GOALS", "COMPLETEDGOALSLIST"]) || pick([/status/, /resolved/, /escalat/, /outcome/]),
+    escalationFlag: pickExact(["HANDOVER_QUESTION_anonymized", "GOALS", "COMPLETEDGOALSLIST"]) || pick([/escalat/, /handover/, /human/, /agent_required/, /transfer/]),
+    category: pickExact(["MAIN_INTENT", "INTENT", "ENDPOINTNAME", "MEDIA_TYPE"]) || pick([/category/, /intent/, /topic/, /issue/]),
+    goalsField: pickExact(["GOALS", "COMPLETEDGOALSLIST"])
   };
 }
 
 function deriveIssueCategory(row, fields, text) {
   if (fields?.category && row[fields.category]) return String(row[fields.category]).toLowerCase();
   return categorizeIssue(text);
+}
+
+function extractGoalText(row, fields) {
+  if (!fields?.goalsField || isEmpty(row[fields.goalsField])) return "";
+  return String(row[fields.goalsField]).toLowerCase();
+}
+
+function detectResolvedSignal(text, goalText) {
+  if (/\bresolved|closed|solved|completed\b/.test(text)) return true;
+  if (!goalText) return false;
+  return /\bfaq_helpful\b|\bcustomer_verified\b|\bconnectie_backend_succes\b/.test(goalText);
+}
+
+function detectEscalationSignal(text, goalText, row, fields) {
+  if (state.regexes.escalationRegex.test(text)) return true;
+  if (fields?.escalationFlag && !isEmpty(row[fields.escalationFlag])) {
+    const flagValue = String(row[fields.escalationFlag]).toLowerCase().trim();
+    if (flagValue && flagValue !== "none" && flagValue !== "null") return true;
+  }
+  if (!goalText) return false;
+  return /\bdirectlivechat\b|\boutside_service_hours_no_agents\b|\bhandover\b|\btransfer\b/.test(goalText);
+}
+
+function detectFallbackSignal(text, row, fields) {
+  if (state.regexes.fallbackRegex.test(text)) return true;
+  if (fields?.userMessage && !isEmpty(row[fields.userMessage])) {
+    const msg = String(row[fields.userMessage]).toLowerCase();
+    if (/\bunrecognized\b|\bonbekend\b|\bniet begrepen\b/.test(msg)) return true;
+  }
+  return false;
 }
 
 function inferRowTime(row, fields) {
@@ -892,7 +928,10 @@ function inferRowTime(row, fields) {
 function extractConversationPreview(row, fields, text) {
   const user = fields?.userMessage ? trimText(String(row[fields.userMessage] ?? "").trim(), 220) : "";
   const bot = fields?.botResponse ? trimText(String(row[fields.botResponse] ?? "").trim(), 220) : "";
-  const status = fields?.status ? trimText(String(row[fields.status] ?? "").trim(), 80) : "";
+  let status = fields?.status ? trimText(String(row[fields.status] ?? "").trim(), 80) : "";
+  if (!status && fields?.goalsField && !isEmpty(row[fields.goalsField])) {
+    status = trimText(String(row[fields.goalsField] ?? "").trim(), 80);
+  }
   const timestamp = fields?.timestamp && row[fields.timestamp] ? String(row[fields.timestamp]) : inferRowTime(row, fields);
   return {
     user,
