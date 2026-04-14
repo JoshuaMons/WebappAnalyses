@@ -14,6 +14,7 @@ const LEGACY_STORAGE_KEYS = ["supportAnalyticsSessionV1"];
 const LANGUAGE_KEY = "supportAnalyticsLanguageV1";
 const API_KEY_SESSION_KEY = "supportAnalyticsOpenAiKeySessionV1";
 const RULES_STORAGE_KEY = "supportAnalyticsRulesV1";
+const LAST_ACTIVE_TARGET_KEY = "supportAnalyticsLastActiveTargetV1";
 const TARGET_DATASET_FILES = [
   { key: "essent cgny.csv", label: "Essent CGNY" },
   { key: "essent data.csv", label: "Essent Data" },
@@ -33,7 +34,7 @@ const I18N = {
     appTitle: "Support Analytics Dashboard",
     appSubtitle: "Conversation performance, handovers, failures, and issue insights",
     languageLabel: "Language",
-    clearDataBtn: "Clear Data",
+    quickSwapBtn: "Quick Swap Dataset",
     targetFilesTitle: "Target files",
     targetFilesHint: "Only these 3 files are analyzed in Essent mode.",
     uploadLabel: "Upload datasets (CSV, XLSX, JSON)",
@@ -82,6 +83,8 @@ const I18N = {
     compareLeftLabel: "Dataset A",
     compareRightLabel: "Dataset B",
     statusSelectDataset: "Select at least one dataset file.",
+    statusQuickSwapNoDataset: "Upload at least one Essent dataset first.",
+    statusQuickSwapDone: "Switched to: {name}.",
     statusFileIgnored: "Ignored file: {name}. Only the 3 Essent files are accepted.",
     statusNoValidFiles: "No valid Essent files selected.",
     statusAnalyzingFile: "Analyzing {name}...",
@@ -152,7 +155,7 @@ const I18N = {
     appTitle: "Support Analyse Dashboard",
     appSubtitle: "Gespreksperformance, overdrachten, fouten en issue-inzichten",
     languageLabel: "Taal",
-    clearDataBtn: "Data wissen",
+    quickSwapBtn: "Snel wisselen dataset",
     targetFilesTitle: "Doelbestanden",
     targetFilesHint: "Alleen deze 3 bestanden worden geanalyseerd in Essent-modus.",
     uploadLabel: "Upload datasets (CSV, XLSX, JSON)",
@@ -201,6 +204,8 @@ const I18N = {
     compareLeftLabel: "Dataset A",
     compareRightLabel: "Dataset B",
     statusSelectDataset: "Selecteer minimaal één datasetbestand.",
+    statusQuickSwapNoDataset: "Upload eerst minimaal één Essent-dataset.",
+    statusQuickSwapDone: "Gewisseld naar: {name}.",
     statusFileIgnored: "Bestand genegeerd: {name}. Alleen de 3 Essent-bestanden zijn toegestaan.",
     statusNoValidFiles: "Geen geldige Essent-bestanden geselecteerd.",
     statusAnalyzingFile: "Bezig met analyseren van {name}...",
@@ -313,9 +318,10 @@ function init() {
 function bindEvents() {
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
   byId("uploadBtn").addEventListener("click", handleUpload);
-  byId("clearDataBtn").addEventListener("click", clearData);
+  byId("quickSwapBtn").addEventListener("click", quickSwapDataset);
   byId("activeDatasetSelect").addEventListener("change", (e) => {
     state.activeDatasetId = e.target.value || null;
+    persistLastActiveTarget();
     saveSession();
     renderAll();
   });
@@ -429,6 +435,7 @@ async function handleUpload() {
       }
       state.datasets.sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
       state.activeDatasetId = dataset.id;
+      persistLastActiveTarget();
       acceptedCount += 1;
       saveSession();
       renderDatasetSelect();
@@ -455,6 +462,24 @@ function clearData() {
   renderDatasetSelect();
   renderAll();
   setStatus(t("clearDone"));
+}
+
+function quickSwapDataset() {
+  if (!state.datasets.length) {
+    setStatus(t("statusQuickSwapNoDataset"));
+    return;
+  }
+  const ordered = state.datasets.slice().sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
+  const currentIdx = ordered.findIndex((d) => d.id === state.activeDatasetId);
+  const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % ordered.length : 0;
+  const nextDataset = ordered[nextIdx];
+  if (!nextDataset) return;
+  state.activeDatasetId = nextDataset.id;
+  persistLastActiveTarget();
+  saveSession();
+  renderDatasetSelect();
+  renderAll();
+  setStatus(t("statusQuickSwapDone", { name: nextDataset.targetLabel || nextDataset.name }));
 }
 
 async function analyzeFileToDataset(file) {
@@ -1073,8 +1098,14 @@ function renderDatasetSelect() {
     opt.textContent = `${label} (${d.analysis.rowCount.toLocaleString()} rows)`;
     sel.appendChild(opt);
   });
-  if (!state.activeDatasetId) state.activeDatasetId = state.datasets[state.datasets.length - 1].id;
+  const hasActive = state.datasets.some((d) => d.id === state.activeDatasetId);
+  if (!hasActive) {
+    const preferredTarget = loadLastActiveTarget();
+    const preferredDataset = preferredTarget ? state.datasets.find((d) => d.targetKey === preferredTarget) : null;
+    state.activeDatasetId = preferredDataset ? preferredDataset.id : state.datasets[0].id;
+  }
   sel.value = state.activeDatasetId;
+  persistLastActiveTarget();
   byId("aiEnabled").checked = !!state.aiEnabled;
   renderTargetFileStatus();
   renderComparisonSelectors();
@@ -1970,6 +2001,25 @@ function persistLanguage(lang) {
     localStorage.setItem(LANGUAGE_KEY, lang);
   } catch {
     // ignore storage issues
+  }
+}
+
+function persistLastActiveTarget() {
+  const active = getActiveDataset();
+  if (!active || !active.targetKey) return;
+  try {
+    localStorage.setItem(LAST_ACTIVE_TARGET_KEY, active.targetKey);
+  } catch {
+    // ignore storage issues
+  }
+}
+
+function loadLastActiveTarget() {
+  try {
+    const value = localStorage.getItem(LAST_ACTIVE_TARGET_KEY) || "";
+    return value || "";
+  } catch {
+    return "";
   }
 }
 
