@@ -201,6 +201,30 @@ canvas {
   margin-bottom: 0.7rem;
 }
 
+.rules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 0.8rem;
+}
+
+.rules-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+}
+
+.rules-field textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.rules-field-small {
+  max-width: 260px;
+}
+
 .table-wrap {
   overflow: auto;
   max-height: 450px;

@@ -13,6 +13,15 @@ const MAX_SESSION_DATASETS = 5;
 const LEGACY_STORAGE_KEYS = ["supportAnalyticsSessionV1"];
 const LANGUAGE_KEY = "supportAnalyticsLanguageV1";
 const API_KEY_SESSION_KEY = "supportAnalyticsOpenAiKeySessionV1";
+const RULES_STORAGE_KEY = "supportAnalyticsRulesV1";
+
+const DEFAULT_RULES = {
+  handoverKeywords: ["agent", "human", "handover", "transfer", "specialist"],
+  escalationKeywords: ["escalat", "handover", "transfer", "human", "agent"],
+  fallbackKeywords: ["i do not understand", "i don't understand", "cannot help", "rephrase", "didn't catch", "fallback", "not sure"],
+  negativeKeywords: ["angry", "frustrat", "upset", "bad", "terrible", "hate", "not working", "still broken", "complain", "annoyed"],
+  longUnresolvedTurns: 8
+};
 
 const I18N = {
   en: {
@@ -33,6 +42,7 @@ const I18N = {
     tabHandovers: "Handovers",
     tabProblems: "Problem Analysis",
     tabAiAnalysis: "AI Analysis",
+    tabRules: "Detection Rules",
     tabComparison: "Dataset Comparison",
     kpiTotalConversations: "Total Conversations",
     kpiResolutionRate: "Resolution Rate",
@@ -97,6 +107,22 @@ const I18N = {
     timeLabel: "Time",
     summaryLabel: "Summary",
     noExampleText: "No detailed example available."
+    ,
+    rulesTitle: "Detection Rules",
+    rulesSubtitle: "Tune keywords and thresholds used for handover and failure detection.",
+    rulesActiveLogicTitle: "Current Detection Logic",
+    rulesKeywordsTitle: "Recognized Keywords",
+    rulesEditTitle: "Edit Rules",
+    rulesHandoverKeywordsLabel: "Handover keywords (comma-separated)",
+    rulesEscalationKeywordsLabel: "Escalation keywords (comma-separated)",
+    rulesFallbackKeywordsLabel: "Fallback keywords (comma-separated)",
+    rulesNegativeKeywordsLabel: "Negative sentiment keywords (comma-separated)",
+    rulesLongUnresolvedTurnsLabel: "Long unresolved threshold (turns)",
+    saveRulesBtn: "Save Rules",
+    resetRulesBtn: "Reset Defaults",
+    rulesSaved: "Detection rules saved.",
+    rulesReset: "Detection rules reset to defaults.",
+    rulesApplyHint: "Rules are applied to newly uploaded datasets."
   },
   nl: {
     appTitle: "Support Analyse Dashboard",
@@ -116,6 +142,7 @@ const I18N = {
     tabHandovers: "Overdrachten",
     tabProblems: "Probleemanalyse",
     tabAiAnalysis: "AI Analyse",
+    tabRules: "Detectieregels",
     tabComparison: "Dataset Vergelijking",
     kpiTotalConversations: "Totaal gesprekken",
     kpiResolutionRate: "Oplossingsratio",
@@ -180,6 +207,22 @@ const I18N = {
     timeLabel: "Tijd",
     summaryLabel: "Samenvatting",
     noExampleText: "Geen gedetailleerd voorbeeld beschikbaar."
+    ,
+    rulesTitle: "Detectieregels",
+    rulesSubtitle: "Pas keywords en drempels aan voor handover- en foutdetectie.",
+    rulesActiveLogicTitle: "Huidige detectielogica",
+    rulesKeywordsTitle: "Herkende keywords",
+    rulesEditTitle: "Regels bewerken",
+    rulesHandoverKeywordsLabel: "Handover keywords (komma-gescheiden)",
+    rulesEscalationKeywordsLabel: "Escalatie keywords (komma-gescheiden)",
+    rulesFallbackKeywordsLabel: "Fallback keywords (komma-gescheiden)",
+    rulesNegativeKeywordsLabel: "Negatieve sentiment keywords (komma-gescheiden)",
+    rulesLongUnresolvedTurnsLabel: "Drempel lang onopgelost (beurten)",
+    saveRulesBtn: "Regels opslaan",
+    resetRulesBtn: "Standaard herstellen",
+    rulesSaved: "Detectieregels opgeslagen.",
+    rulesReset: "Detectieregels hersteld naar standaard.",
+    rulesApplyHint: "Regels worden toegepast op nieuw geuploade datasets."
   }
 };
 
@@ -188,6 +231,8 @@ const state = {
   activeDatasetId: null,
   aiEnabled: false,
   language: "en",
+  rules: cloneDefaultRules(),
+  regexes: buildRuleRegexes(cloneDefaultRules()),
   table: {
     sortKey: null,
     sortDir: 1,
@@ -197,19 +242,17 @@ const state = {
   }
 };
 
-const HANDOVER_REGEX = /\b(agent|human|handover|escalat|transfer|specialist)\b/i;
-const NEGATIVE_REGEX = /\b(angry|frustrat|upset|bad|terrible|hate|not working|still broken|complain|annoyed)\b/i;
-const FALLBACK_REGEX = /\b(i do(?: not|n't) understand|cannot help|rephrase|didn'?t catch|fallback|not sure)\b/i;
-
 document.addEventListener("DOMContentLoaded", init);
 
 function init() {
   cleanupLegacyStorage();
   loadSession();
   state.language = loadLanguage();
+  loadRules();
   bindEvents();
   applyTranslations();
   hydrateApiKeyInput();
+  populateRulesEditor();
   renderDatasetSelect();
   renderAll();
 }
@@ -267,6 +310,8 @@ function bindEvents() {
     state.table.page += 1;
     renderDataTable();
   });
+  byId("saveRulesBtn").addEventListener("click", saveRulesFromEditor);
+  byId("resetRulesBtn").addEventListener("click", resetRulesToDefault);
 }
 
 function activateTab(tabId) {
@@ -491,10 +536,10 @@ function ingestRow(ctx, row) {
 
   conv.turns += 1;
   conv.resolved = conv.resolved || /\bresolved|closed|solved|completed\b/.test(text);
-  conv.escalated = conv.escalated || /\bescalat|handover|transfer|human|agent\b/.test(text);
-  conv.handoverKeyword = conv.handoverKeyword || HANDOVER_REGEX.test(text);
-  conv.negative = conv.negative || NEGATIVE_REGEX.test(text);
-  conv.fallback = conv.fallback || FALLBACK_REGEX.test(text);
+  conv.escalated = conv.escalated || state.regexes.escalationRegex.test(text);
+  conv.handoverKeyword = conv.handoverKeyword || state.regexes.handoverRegex.test(text);
+  conv.negative = conv.negative || state.regexes.negativeRegex.test(text);
+  conv.fallback = conv.fallback || state.regexes.fallbackRegex.test(text);
   if (ctx.fields.userMessage) {
     const msg = normalizeSentence(row[ctx.fields.userMessage]);
     if (msg) {
@@ -512,10 +557,10 @@ function buildRowAsConversation(row, text, category, fields) {
     id: String(row[fields?.conversationId] ?? `row-${Math.random().toString(36).slice(2, 8)}`),
     turns: 1,
     resolved: /\bresolved|closed|solved|completed\b/.test(text),
-    escalated: /\bescalat|handover|transfer|human|agent\b/.test(text),
-    handoverKeyword: HANDOVER_REGEX.test(text),
-    negative: NEGATIVE_REGEX.test(text),
-    fallback: FALLBACK_REGEX.test(text),
+    escalated: state.regexes.escalationRegex.test(text),
+    handoverKeyword: state.regexes.handoverRegex.test(text),
+    negative: state.regexes.negativeRegex.test(text),
+    fallback: state.regexes.fallbackRegex.test(text),
     repeated: false,
     category,
     firstTime: inferRowTime(row, fields),
@@ -535,7 +580,7 @@ function applyConversationSummary(aggregate, conv) {
   else aggregate.unresolved += 1;
   if (conv.escalated) aggregate.escalated += 1;
 
-  const longUnresolved = !conv.resolved && conv.turns > 8;
+  const longUnresolved = !conv.resolved && conv.turns > Number(state.rules.longUnresolvedTurns || DEFAULT_RULES.longUnresolvedTurns);
   if (conv.repeated) aggregate.failureSignals.repeatedQuestions += 1;
   if (conv.negative) aggregate.failureSignals.negativeSentiment += 1;
   if (conv.fallback) aggregate.failureSignals.fallbackResponses += 1;
@@ -894,6 +939,7 @@ function renderAll() {
   renderHandovers();
   renderProblems();
   renderAiAnalysis();
+  renderRulesTab();
   renderComparison();
 }
 
@@ -1097,6 +1143,59 @@ function renderAiAnalysis() {
   renderTable(labelsWrap, labelRows, ["issue", "label"]);
 }
 
+function renderRulesTab() {
+  const logicList = byId("rulesLogicList");
+  const keywordsWrap = byId("rulesCurrentKeywordsWrap");
+  if (!logicList || !keywordsWrap) return;
+
+  const longTurns = Number(state.rules.longUnresolvedTurns || DEFAULT_RULES.longUnresolvedTurns);
+  logicList.innerHTML = [
+    `Handover = keyword OR escalation signal OR fallback + repeated user question.`,
+    `Repeated question = same consecutive normalized user message within a conversation.`,
+    `Long unresolved = unresolved conversation with more than ${longTurns} turns.`,
+    t("rulesApplyHint")
+  ].map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+
+  const rows = [
+    { rule: "handoverKeywords", keywords: state.rules.handoverKeywords.join(", ") },
+    { rule: "escalationKeywords", keywords: state.rules.escalationKeywords.join(", ") },
+    { rule: "fallbackKeywords", keywords: state.rules.fallbackKeywords.join(", ") },
+    { rule: "negativeKeywords", keywords: state.rules.negativeKeywords.join(", ") }
+  ];
+  renderTable(keywordsWrap, rows, ["rule", "keywords"]);
+}
+
+function populateRulesEditor() {
+  safeSetValue("rulesHandoverKeywordsInput", state.rules.handoverKeywords.join(", "));
+  safeSetValue("rulesEscalationKeywordsInput", state.rules.escalationKeywords.join(", "));
+  safeSetValue("rulesFallbackKeywordsInput", state.rules.fallbackKeywords.join(", "));
+  safeSetValue("rulesNegativeKeywordsInput", state.rules.negativeKeywords.join(", "));
+  safeSetValue("rulesLongUnresolvedTurnsInput", String(state.rules.longUnresolvedTurns));
+}
+
+function saveRulesFromEditor() {
+  state.rules = {
+    handoverKeywords: parseKeywordList(byId("rulesHandoverKeywordsInput")?.value),
+    escalationKeywords: parseKeywordList(byId("rulesEscalationKeywordsInput")?.value),
+    fallbackKeywords: parseKeywordList(byId("rulesFallbackKeywordsInput")?.value),
+    negativeKeywords: parseKeywordList(byId("rulesNegativeKeywordsInput")?.value),
+    longUnresolvedTurns: Math.max(1, Number(byId("rulesLongUnresolvedTurnsInput")?.value || DEFAULT_RULES.longUnresolvedTurns))
+  };
+  state.regexes = buildRuleRegexes(state.rules);
+  persistRules();
+  renderRulesTab();
+  setStatus(t("rulesSaved"));
+}
+
+function resetRulesToDefault() {
+  state.rules = cloneDefaultRules();
+  state.regexes = buildRuleRegexes(state.rules);
+  persistRules();
+  populateRulesEditor();
+  renderRulesTab();
+  setStatus(t("rulesReset"));
+}
+
 function renderComparison() {
   if (!state.datasets.length) {
     byId("compareTableWrap").innerHTML = "";
@@ -1280,6 +1379,87 @@ function cleanupLegacyStorage() {
   });
 }
 
+function cloneDefaultRules() {
+  return {
+    handoverKeywords: [...DEFAULT_RULES.handoverKeywords],
+    escalationKeywords: [...DEFAULT_RULES.escalationKeywords],
+    fallbackKeywords: [...DEFAULT_RULES.fallbackKeywords],
+    negativeKeywords: [...DEFAULT_RULES.negativeKeywords],
+    longUnresolvedTurns: DEFAULT_RULES.longUnresolvedTurns
+  };
+}
+
+function parseKeywordList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function buildRuleRegexes(rules) {
+  return {
+    handoverRegex: buildKeywordRegex(rules.handoverKeywords),
+    escalationRegex: buildKeywordRegex(rules.escalationKeywords),
+    fallbackRegex: buildKeywordRegex(rules.fallbackKeywords),
+    negativeRegex: buildKeywordRegex(rules.negativeKeywords)
+  };
+}
+
+function buildKeywordRegex(keywords) {
+  if (!Array.isArray(keywords) || !keywords.length) {
+    return /^$/;
+  }
+  const parts = keywords
+    .map((kw) => escapeRegex(kw))
+    .filter(Boolean)
+    .map((kw) => kw.includes("\\ ") ? kw.replaceAll("\\ ", "\\s+") : kw);
+  if (!parts.length) return /^$/;
+  return new RegExp(`\\b(${parts.join("|")})\\b`, "i");
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function loadRules() {
+  try {
+    const raw = localStorage.getItem(RULES_STORAGE_KEY);
+    if (!raw) {
+      state.rules = cloneDefaultRules();
+      state.regexes = buildRuleRegexes(state.rules);
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    state.rules = {
+      handoverKeywords: Array.isArray(parsed.handoverKeywords) && parsed.handoverKeywords.length
+        ? parsed.handoverKeywords
+        : [...DEFAULT_RULES.handoverKeywords],
+      escalationKeywords: Array.isArray(parsed.escalationKeywords) && parsed.escalationKeywords.length
+        ? parsed.escalationKeywords
+        : [...DEFAULT_RULES.escalationKeywords],
+      fallbackKeywords: Array.isArray(parsed.fallbackKeywords) && parsed.fallbackKeywords.length
+        ? parsed.fallbackKeywords
+        : [...DEFAULT_RULES.fallbackKeywords],
+      negativeKeywords: Array.isArray(parsed.negativeKeywords) && parsed.negativeKeywords.length
+        ? parsed.negativeKeywords
+        : [...DEFAULT_RULES.negativeKeywords],
+      longUnresolvedTurns: Math.max(1, Number(parsed.longUnresolvedTurns || DEFAULT_RULES.longUnresolvedTurns))
+    };
+    state.regexes = buildRuleRegexes(state.rules);
+  } catch {
+    state.rules = cloneDefaultRules();
+    state.regexes = buildRuleRegexes(state.rules);
+  }
+}
+
+function persistRules() {
+  try {
+    localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(state.rules));
+  } catch {
+    // Ignore storage issues.
+  }
+}
+
 function getActiveDataset() {
   return state.datasets.find((d) => d.id === state.activeDatasetId) || null;
 }
@@ -1290,6 +1470,11 @@ function setStatus(message) {
 
 function byId(id) {
   return document.getElementById(id);
+}
+
+function safeSetValue(id, value) {
+  const el = byId(id);
+  if (el) el.value = value;
 }
 
 function extractResponseText(data) {

@@ -55,6 +55,7 @@
     <button class="tab-btn" data-tab="handoversTab" data-i18n="tabHandovers">Handovers</button>
     <button class="tab-btn" data-tab="problemsTab" data-i18n="tabProblems">Problem Analysis</button>
     <button class="tab-btn" data-tab="aiAnalysisTab" data-i18n="tabAiAnalysis">AI Analysis</button>
+    <button class="tab-btn" data-tab="rulesTab" data-i18n="tabRules">Detection Rules</button>
     <button class="tab-btn" data-tab="comparisonTab" data-i18n="tabComparison">Dataset Comparison</button>
   </nav>
 
@@ -159,6 +160,53 @@
       <article class="panel">
         <h3 data-i18n="aiIssueLabelsTitle">AI Issue Labels</h3>
         <div id="aiIssueLabelsWrap" class="table-wrap"></div>
+      </article>
+    </section>
+
+    <section id="rulesTab" class="tab-content">
+      <article class="panel">
+        <h3 data-i18n="rulesTitle">Detection Rules</h3>
+        <p class="muted" data-i18n="rulesSubtitle">Tune keywords and thresholds used for handover and failure detection.</p>
+      </article>
+
+      <article class="panel">
+        <h3 data-i18n="rulesActiveLogicTitle">Current Detection Logic</h3>
+        <ul id="rulesLogicList"></ul>
+      </article>
+
+      <article class="panel">
+        <h3 data-i18n="rulesKeywordsTitle">Recognized Keywords</h3>
+        <div id="rulesCurrentKeywordsWrap" class="table-wrap"></div>
+      </article>
+
+      <article class="panel">
+        <h3 data-i18n="rulesEditTitle">Edit Rules</h3>
+        <div class="rules-grid">
+          <label class="rules-field">
+            <span data-i18n="rulesHandoverKeywordsLabel">Handover keywords (comma-separated)</span>
+            <textarea id="rulesHandoverKeywordsInput" rows="3"></textarea>
+          </label>
+          <label class="rules-field">
+            <span data-i18n="rulesEscalationKeywordsLabel">Escalation keywords (comma-separated)</span>
+            <textarea id="rulesEscalationKeywordsInput" rows="3"></textarea>
+          </label>
+          <label class="rules-field">
+            <span data-i18n="rulesFallbackKeywordsLabel">Fallback keywords (comma-separated)</span>
+            <textarea id="rulesFallbackKeywordsInput" rows="3"></textarea>
+          </label>
+          <label class="rules-field">
+            <span data-i18n="rulesNegativeKeywordsLabel">Negative sentiment keywords (comma-separated)</span>
+            <textarea id="rulesNegativeKeywordsInput" rows="3"></textarea>
+          </label>
+          <label class="rules-field rules-field-small">
+            <span data-i18n="rulesLongUnresolvedTurnsLabel">Long unresolved threshold (turns)</span>
+            <input id="rulesLongUnresolvedTurnsInput" type="number" min="1" step="1" />
+          </label>
+        </div>
+        <div class="uploader-row">
+          <button id="saveRulesBtn" class="btn primary" data-i18n="saveRulesBtn">Save Rules</button>
+          <button id="resetRulesBtn" class="btn" data-i18n="resetRulesBtn">Reset Defaults</button>
+        </div>
       </article>
     </section>
 

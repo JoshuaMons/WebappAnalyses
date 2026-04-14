@@ -13,6 +13,7 @@ Interactive dark-theme dashboard for support conversation analytics.
   - Handovers
   - Problem Analysis
   - AI Analysis
+  - Detection Rules (editable keywords/threshold)
   - Dataset Comparison
 - Handover detection via keyword/escalation/failure-loop signals
 - Problem clustering with top issues + example conversations
