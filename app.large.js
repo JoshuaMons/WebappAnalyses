@@ -20,6 +20,13 @@ const TARGET_DATASET_FILES = [
   { key: "essent data.csv", label: "Essent Data" },
   { key: "essent genesys.csv", label: "Essent Genesys" }
 ];
+const SQLITE_TABLE_TO_TARGET = {
+  analytics: "essent cgny.csv",
+  sessions: "essent data.csv",
+  genesys: "essent genesys.csv"
+};
+const SQL_JS_WASM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/";
+let sqlJsPromise = null;
 
 const DEFAULT_RULES = {
   handoverKeywords: ["agent", "human", "handover", "transfer", "specialist"],
@@ -38,7 +45,7 @@ const I18N = {
     quickSwapChooseLabel: "Choose dataset...",
     targetFilesTitle: "Target files",
     targetFilesHint: "Only these 3 files are analyzed in Essent mode.",
-    uploadLabel: "Upload datasets (CSV, XLSX, JSON)",
+    uploadLabel: "Upload database (.db)",
     analyzeUploadBtn: "Analyze Upload",
     aiToggle: "Enable AI-powered analysis (OpenAI GPT-5.2)",
     openAiKeyPlaceholder: "OpenAI API Key (optional if AI is off)",
@@ -93,9 +100,10 @@ const I18N = {
     statusSelectDataset: "Select at least one dataset file.",
     statusQuickSwapNoDataset: "Upload at least one Essent dataset first.",
     statusQuickSwapDone: "Switched to: {name}.",
-    statusFileIgnored: "Ignored file: {name}. Only the 3 Essent files are accepted.",
-    statusNoValidFiles: "No valid Essent files selected.",
+    statusNeedDbFile: "Select a .db database file.",
+    statusNoValidFiles: "No valid database selected.",
     statusAnalyzingFile: "Analyzing {name}...",
+    statusLoadedFromDb: "Loaded {count} dataset(s) from database.",
     statusAnalyzedFiles: "Analyzed {count} file(s).",
     statusUploadFailed: "Upload failed: {error}",
     clearConfirm: "You are about to clear the dataset(s). Are you sure?",
@@ -167,7 +175,7 @@ const I18N = {
     quickSwapChooseLabel: "Kies dataset...",
     targetFilesTitle: "Doelbestanden",
     targetFilesHint: "Alleen deze 3 bestanden worden geanalyseerd in Essent-modus.",
-    uploadLabel: "Upload datasets (CSV, XLSX, JSON)",
+    uploadLabel: "Upload database (.db)",
     analyzeUploadBtn: "Upload analyseren",
     aiToggle: "AI-analyse inschakelen (OpenAI GPT-5.2)",
     openAiKeyPlaceholder: "OpenAI API sleutel (optioneel als AI uit staat)",
@@ -222,9 +230,10 @@ const I18N = {
     statusSelectDataset: "Selecteer minimaal één datasetbestand.",
     statusQuickSwapNoDataset: "Upload eerst minimaal één Essent-dataset.",
     statusQuickSwapDone: "Gewisseld naar: {name}.",
-    statusFileIgnored: "Bestand genegeerd: {name}. Alleen de 3 Essent-bestanden zijn toegestaan.",
-    statusNoValidFiles: "Geen geldige Essent-bestanden geselecteerd.",
+    statusNeedDbFile: "Selecteer een .db databasebestand.",
+    statusNoValidFiles: "Geen geldige database geselecteerd.",
     statusAnalyzingFile: "Bezig met analyseren van {name}...",
+    statusLoadedFromDb: "{count} dataset(s) geladen vanuit database.",
     statusAnalyzedFiles: "{count} bestand(en) geanalyseerd.",
     statusUploadFailed: "Upload mislukt: {error}",
     clearConfirm: "Je staat op het punt de dataset(s) te wissen. Weet je het zeker?",
@@ -425,43 +434,41 @@ function activateTab(tabId) {
 async function handleUpload() {
   const files = byId("datasetInput").files;
   if (!files || !files.length) {
-    setStatus(t("statusSelectDataset"));
+    setStatus(t("statusNeedDbFile"));
     return;
   }
-  let acceptedCount = 0;
+  const dbFile = Array.from(files).find((f) => String(f.name || "").toLowerCase().endsWith(".db"));
+  if (!dbFile) {
+    setStatus(t("statusNeedDbFile"));
+    return;
+  }
   try {
-    for (const file of files) {
-      const targetDef = getTargetFileDefinition(file.name);
-      if (!targetDef) {
-        setStatus(t("statusFileIgnored", { name: file.name }));
-        continue;
-      }
-      setStatus(t("statusAnalyzingFile", { name: file.name }));
-      const dataset = await analyzeFileToDataset(file);
-      dataset.targetKey = targetDef.key;
-      dataset.targetLabel = targetDef.label;
-      const existingIdx = state.datasets.findIndex((d) => d.targetKey === targetDef.key);
-      if (existingIdx >= 0) {
-        state.datasets[existingIdx] = dataset;
-      } else {
-        state.datasets.push(dataset);
-      }
-      state.datasets.sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
-      state.activeDatasetId = dataset.id;
-      persistLastActiveTarget();
-      acceptedCount += 1;
-      saveSession();
-      renderDatasetSelect();
-      renderAll();
-    }
-    if (!acceptedCount) {
+    setStatus(t("statusAnalyzingFile", { name: dbFile.name }));
+    const datasets = await analyzeDbFileToDatasets(dbFile);
+    datasets.forEach((dataset) => upsertTargetDataset(dataset));
+    if (!datasets.length) {
       setStatus(t("statusNoValidFiles"));
       return;
     }
-    setStatus(t("statusAnalyzedFiles", { count: acceptedCount }));
+    state.activeDatasetId = datasets[0].id;
+    persistLastActiveTarget();
+    saveSession();
+    renderDatasetSelect();
+    renderAll();
+    setStatus(t("statusLoadedFromDb", { count: datasets.length }));
   } catch (error) {
     setStatus(t("statusUploadFailed", { error: error.message }));
   }
+}
+
+function upsertTargetDataset(dataset) {
+  const existingIdx = state.datasets.findIndex((d) => d.targetKey === dataset.targetKey);
+  if (existingIdx >= 0) {
+    state.datasets[existingIdx] = dataset;
+  } else {
+    state.datasets.push(dataset);
+  }
+  state.datasets.sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
 }
 
 function clearData() {
@@ -522,6 +529,62 @@ async function analyzeFileToDataset(file) {
     rows: normalized.slice(0, Math.min(MAX_STORED_ROWS, normalized.length)),
     analysis
   };
+}
+
+async function analyzeDbFileToDatasets(file) {
+  const SQL = await loadSqlJs();
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const db = new SQL.Database(bytes);
+  try {
+    const tableRows = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+    const names = tableRows[0]?.values?.map((v) => String(v[0] || "").trim().toLowerCase()) || [];
+    const datasets = [];
+    for (const tableName of names) {
+      const targetKey = SQLITE_TABLE_TO_TARGET[tableName];
+      if (!targetKey) continue;
+      const targetDef = getTargetFileDefinition(targetKey);
+      if (!targetDef) continue;
+      const analyzed = analyzeSqliteTable(db, tableName);
+      datasets.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: `${file.name}::${tableName}`,
+        targetKey: targetDef.key,
+        targetLabel: targetDef.label,
+        uploadedAt: new Date().toISOString(),
+        rows: analyzed.rows,
+        analysis: analyzed.analysis
+      });
+    }
+    return datasets;
+  } finally {
+    db.close();
+  }
+}
+
+function analyzeSqliteTable(db, tableName) {
+  const engine = createStreamingAnalyzer(`sqlite:${tableName}`);
+  const safeTable = tableName.replace(/"/g, "\"\"");
+  const stmt = db.prepare(`SELECT * FROM "${safeTable}"`);
+  try {
+    while (stmt.step()) {
+      const row = normalizeObjectRowHeaders(stmt.getAsObject());
+      engine.ingestRows([row]);
+    }
+  } finally {
+    stmt.free();
+  }
+  return engine.finalize();
+}
+
+async function loadSqlJs() {
+  if (sqlJsPromise) return sqlJsPromise;
+  if (typeof initSqlJs !== "function") {
+    throw new Error("SQLite parser failed to load. Refresh and try again.");
+  }
+  sqlJsPromise = initSqlJs({
+    locateFile: (file) => `${SQL_JS_WASM_BASE}${file}`
+  });
+  return sqlJsPromise;
 }
 
 function parseAndAnalyzeCsvStream(file) {

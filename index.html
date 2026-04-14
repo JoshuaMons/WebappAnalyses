@@ -8,6 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js" defer></script>
   <script src="app.large.js" defer></script>
 </head>
 <body>
@@ -31,13 +32,8 @@
 
   <section class="panel uploader">
     <div class="uploader-row">
-      <strong data-i18n="targetFilesTitle">Target files</strong>
-      <span class="muted" data-i18n="targetFilesHint">Only these 3 files are analyzed in Essent mode.</span>
-    </div>
-    <div id="targetFilesStatus" class="table-wrap"></div>
-    <div class="uploader-row">
-      <label for="datasetInput" class="file-label" data-i18n="uploadLabel">Upload datasets (CSV, XLSX, JSON)</label>
-      <input id="datasetInput" type="file" accept=".csv,.json,.xlsx,.xls" multiple />
+      <label for="datasetInput" class="file-label" data-i18n="uploadLabel">Upload database (.db)</label>
+      <input id="datasetInput" type="file" accept=".db" />
       <button id="uploadBtn" class="btn primary" data-i18n="analyzeUploadBtn">Analyze Upload</button>
     </div>
     <div class="uploader-row">
