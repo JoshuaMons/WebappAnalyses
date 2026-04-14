@@ -35,6 +35,7 @@ const I18N = {
     appSubtitle: "Conversation performance, handovers, failures, and issue insights",
     languageLabel: "Language",
     quickSwapBtn: "Quick Swap Dataset",
+    quickSwapChooseLabel: "Choose dataset...",
     targetFilesTitle: "Target files",
     targetFilesHint: "Only these 3 files are analyzed in Essent mode.",
     uploadLabel: "Upload datasets (CSV, XLSX, JSON)",
@@ -156,6 +157,7 @@ const I18N = {
     appSubtitle: "Gespreksperformance, overdrachten, fouten en issue-inzichten",
     languageLabel: "Taal",
     quickSwapBtn: "Snel wisselen dataset",
+    quickSwapChooseLabel: "Kies dataset...",
     targetFilesTitle: "Doelbestanden",
     targetFilesHint: "Alleen deze 3 bestanden worden geanalyseerd in Essent-modus.",
     uploadLabel: "Upload datasets (CSV, XLSX, JSON)",
@@ -277,6 +279,7 @@ const I18N = {
 const state = {
   datasets: [],
   activeDatasetId: null,
+  activeTabId: "overviewTab",
   aiEnabled: false,
   language: "en",
   rules: cloneDefaultRules(),
@@ -319,6 +322,20 @@ function bindEvents() {
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
   byId("uploadBtn").addEventListener("click", handleUpload);
   byId("quickSwapBtn").addEventListener("click", quickSwapDataset);
+  byId("quickSwapSelect").addEventListener("change", (e) => {
+    const nextId = e.target.value || "";
+    if (!nextId) return;
+    state.activeDatasetId = nextId;
+    persistLastActiveTarget();
+    saveSession();
+    renderDatasetSelect();
+    renderAll();
+    hideQuickSwapSelect();
+  });
+  document.addEventListener("click", (e) => {
+    const wrap = e.target?.closest?.(".quick-swap-wrap");
+    if (!wrap) hideQuickSwapSelect();
+  });
   byId("activeDatasetSelect").addEventListener("change", (e) => {
     state.activeDatasetId = e.target.value || null;
     persistLastActiveTarget();
@@ -405,8 +422,10 @@ function bindEvents() {
 }
 
 function activateTab(tabId) {
+  state.activeTabId = tabId || "overviewTab";
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tabId));
   document.querySelectorAll(".tab-content").forEach((t) => t.classList.toggle("active", t.id === tabId));
+  renderActiveTab(state.activeTabId);
 }
 
 async function handleUpload() {
@@ -469,17 +488,15 @@ function quickSwapDataset() {
     setStatus(t("statusQuickSwapNoDataset"));
     return;
   }
-  const ordered = state.datasets.slice().sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
-  const currentIdx = ordered.findIndex((d) => d.id === state.activeDatasetId);
-  const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % ordered.length : 0;
-  const nextDataset = ordered[nextIdx];
-  if (!nextDataset) return;
-  state.activeDatasetId = nextDataset.id;
-  persistLastActiveTarget();
-  saveSession();
-  renderDatasetSelect();
-  renderAll();
-  setStatus(t("statusQuickSwapDone", { name: nextDataset.targetLabel || nextDataset.name }));
+  const quickSwapSelect = byId("quickSwapSelect");
+  const willOpen = quickSwapSelect.hasAttribute("hidden");
+  renderQuickSwapSelect();
+  if (willOpen) {
+    quickSwapSelect.removeAttribute("hidden");
+    quickSwapSelect.focus();
+  } else {
+    hideQuickSwapSelect();
+  }
 }
 
 async function analyzeFileToDataset(file) {
@@ -1089,6 +1106,7 @@ function renderDatasetSelect() {
     byId("aiEnabled").checked = !!state.aiEnabled;
     renderTargetFileStatus();
     renderComparisonSelectors();
+    renderQuickSwapSelect();
     return;
   }
   state.datasets.forEach((d) => {
@@ -1109,6 +1127,39 @@ function renderDatasetSelect() {
   byId("aiEnabled").checked = !!state.aiEnabled;
   renderTargetFileStatus();
   renderComparisonSelectors();
+  renderQuickSwapSelect();
+}
+
+function renderQuickSwapSelect() {
+  const quickSwapSelect = byId("quickSwapSelect");
+  if (!quickSwapSelect) return;
+  quickSwapSelect.innerHTML = "";
+  if (!state.datasets.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = t("quickSwapChooseLabel");
+    quickSwapSelect.appendChild(opt);
+    quickSwapSelect.value = "";
+    return;
+  }
+  const ordered = state.datasets.slice().sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
+  ordered.forEach((d) => {
+    const opt = document.createElement("option");
+    opt.value = d.id;
+    opt.textContent = d.targetLabel || d.name;
+    quickSwapSelect.appendChild(opt);
+  });
+  if (state.activeDatasetId && ordered.some((d) => d.id === state.activeDatasetId)) {
+    quickSwapSelect.value = state.activeDatasetId;
+  } else {
+    quickSwapSelect.value = ordered[0]?.id || "";
+  }
+}
+
+function hideQuickSwapSelect() {
+  const quickSwapSelect = byId("quickSwapSelect");
+  if (!quickSwapSelect) return;
+  quickSwapSelect.setAttribute("hidden", "");
 }
 
 function renderTargetFileStatus() {
@@ -1204,15 +1255,43 @@ function getComparisonDatasets() {
 function renderAll() {
   renderTargetFileStatus();
   renderComparisonSelectors();
+  renderQuickSwapSelect();
+  renderActiveTab(state.activeTabId);
+}
+
+function renderActiveTab(tabId) {
+  const activeTab = tabId || state.activeTabId || "overviewTab";
+  if (activeTab === "overviewTab") {
+    renderOverview();
+    return;
+  }
+  if (activeTab === "dataExplorerTab") {
+    renderColumnTypes();
+    renderQuality();
+    renderDataTable();
+    return;
+  }
+  if (activeTab === "handoversTab") {
+    renderHandovers();
+    return;
+  }
+  if (activeTab === "problemsTab") {
+    renderProblems();
+    return;
+  }
+  if (activeTab === "aiAnalysisTab") {
+    renderAiAnalysis();
+    return;
+  }
+  if (activeTab === "rulesTab") {
+    renderRulesTab();
+    return;
+  }
+  if (activeTab === "comparisonTab") {
+    renderComparison();
+    return;
+  }
   renderOverview();
-  renderColumnTypes();
-  renderQuality();
-  renderDataTable();
-  renderHandovers();
-  renderProblems();
-  renderAiAnalysis();
-  renderRulesTab();
-  renderComparison();
 }
 
 function renderOverview() {

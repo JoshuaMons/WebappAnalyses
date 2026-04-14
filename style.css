@@ -48,6 +48,12 @@ body {
   align-items: center;
 }
 
+.quick-swap-wrap {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
 .panel {
   background: rgba(26, 34, 64, 0.9);
   border: 1px solid var(--border);
