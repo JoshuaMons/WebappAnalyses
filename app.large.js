@@ -3,8 +3,8 @@ const PERSISTENT_STORAGE_KEY = "supportAnalyticsPersistentV1";
 const chartStore = {};
 const SQL_JS_WASM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/";
 const DEFAULT_DB_SOURCES = [
-  "/data/fontys_cgny.db",
   "/api/live-db",
+  "/data/fontys_cgny.db",
   "/fontys_cgny.db"
 ];
 const SQLITE_TABLE_TO_TARGET = {
