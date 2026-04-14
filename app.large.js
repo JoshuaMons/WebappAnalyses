@@ -1442,7 +1442,7 @@ function buildMainIntentHandoverGroups(rows) {
   const map = new Map();
   rows.forEach((row, idx) => {
     const intent = String(row.MAIN_INTENT || "").trim().toLowerCase();
-    if (intent !== "Handover") return;
+    if (!(intent === "handover" || intent.includes("handover"))) return;
     const contactIdRaw = String(row.CONTACTID || "").trim();
     const fallbackId = String(row.CGNY_SESSION_ID || row.CGNY_CONVERSATION_ID || `missing-${idx}`).trim();
     const contactId = contactIdRaw || fallbackId || `missing-${idx}`;
