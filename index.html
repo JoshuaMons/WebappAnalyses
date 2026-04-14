@@ -23,35 +23,8 @@
         <option value="en">ENG</option>
         <option value="nl">NL</option>
       </select>
-      <div class="quick-swap-wrap">
-        <button id="quickSwapBtn" class="btn" data-i18n="quickSwapBtn">Quick Swap Dataset</button>
-        <select id="quickSwapSelect" hidden></select>
-      </div>
     </div>
   </header>
-
-  <section class="panel uploader">
-    <div class="uploader-row">
-      <label for="datasetInput" class="file-label" data-i18n="uploadLabel">Upload database (.db)</label>
-      <input id="datasetInput" type="file" accept=".db" />
-      <button id="uploadBtn" class="btn primary" data-i18n="analyzeUploadBtn">Analyze Upload</button>
-    </div>
-    <div class="uploader-row">
-      <label class="toggle-wrap">
-        <input id="aiEnabled" type="checkbox" />
-        <span data-i18n="aiToggle">Enable AI-powered analysis (OpenAI GPT-5.2)</span>
-      </label>
-      <input id="openAiKey" type="password" data-i18n-placeholder="openAiKeyPlaceholder" placeholder="OpenAI API Key (optional if AI is off)" />
-      <button id="clearApiKeyBtn" class="btn" data-i18n="clearApiKeyBtn">Clear API Key</button>
-      <button id="runAiBtn" class="btn" data-i18n="runAiBtn">Run AI Enrichment</button>
-    </div>
-    <div class="uploader-row">
-      <label for="activeDatasetSelect" data-i18n="activeDatasetLabel">Active dataset</label>
-      <select id="activeDatasetSelect"></select>
-      <span id="persistLabel" class="muted" data-i18n="persistLabel">Stored in session memory until browser closes</span>
-    </div>
-    <p id="statusMessage" class="status"></p>
-  </section>
 
   <nav class="tabs">
     <button class="tab-btn active" data-tab="overviewTab" data-i18n="tabOverview">Overview</button>
@@ -245,5 +218,6 @@
     </div>
     <div id="problemDetailBody" class="modal-body"></div>
   </div>
+  <p id="statusMessage" class="status" hidden></p>
 </body>
 </html>

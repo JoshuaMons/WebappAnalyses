@@ -342,10 +342,14 @@ function init() {
 }
 
 function bindEvents() {
+  const on = (id, event, handler) => {
+    const el = byId(id);
+    if (el) el.addEventListener(event, handler);
+  };
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
-  byId("uploadBtn").addEventListener("click", handleUpload);
-  byId("quickSwapBtn").addEventListener("click", quickSwapDataset);
-  byId("quickSwapSelect").addEventListener("change", (e) => {
+  on("uploadBtn", "click", handleUpload);
+  on("quickSwapBtn", "click", quickSwapDataset);
+  on("quickSwapSelect", "change", (e) => {
     const nextId = e.target.value || "";
     if (!nextId) return;
     state.activeDatasetId = nextId;
@@ -359,65 +363,65 @@ function bindEvents() {
     const wrap = e.target?.closest?.(".quick-swap-wrap");
     if (!wrap) hideQuickSwapSelect();
   });
-  byId("activeDatasetSelect").addEventListener("change", (e) => {
+  on("activeDatasetSelect", "change", (e) => {
     state.activeDatasetId = e.target.value || null;
     persistLastActiveTarget();
     saveSession();
     renderAll();
   });
-  byId("aiEnabled").addEventListener("change", (e) => {
+  on("aiEnabled", "change", (e) => {
     state.aiEnabled = e.target.checked;
     saveSession();
   });
-  byId("runAiBtn").addEventListener("click", runAiEnrichment);
-  byId("clearApiKeyBtn").addEventListener("click", () => {
+  on("runAiBtn", "click", runAiEnrichment);
+  on("clearApiKeyBtn", "click", () => {
     clearApiKeyForSession();
     const keyInput = byId("openAiKey");
     if (keyInput) keyInput.value = "";
     setStatus(t("aiKeyCleared"));
   });
-  byId("openAiKey").addEventListener("change", (e) => {
+  on("openAiKey", "change", (e) => {
     persistApiKeyForSession(e.target.value);
   });
-  byId("openAiKey").addEventListener("blur", (e) => {
+  on("openAiKey", "blur", (e) => {
     persistApiKeyForSession(e.target.value);
   });
-  byId("languageSelect").addEventListener("change", (e) => {
+  on("languageSelect", "change", (e) => {
     state.language = e.target.value === "nl" ? "nl" : "en";
     persistLanguage(state.language);
     applyTranslations();
     renderDatasetSelect();
     renderAll();
   });
-  byId("saveRulesBtn").addEventListener("click", saveRulesFromEditor);
-  byId("resetRulesBtn").addEventListener("click", resetRulesToDefault);
-  byId("problemSearchInput").addEventListener("input", (e) => {
+  on("saveRulesBtn", "click", saveRulesFromEditor);
+  on("resetRulesBtn", "click", resetRulesToDefault);
+  on("problemSearchInput", "input", (e) => {
     state.problemView.search = String(e.target.value || "").trim().toLowerCase();
     renderProblems();
   });
-  byId("problemSortSelect").addEventListener("change", (e) => {
+  on("problemSortSelect", "change", (e) => {
     state.problemView.sortBy = e.target.value || "frequency_desc";
     renderProblems();
   });
-  byId("problemModalCloseBtn").addEventListener("click", closeProblemModal);
-  byId("problemModalBackdrop").addEventListener("click", closeProblemModal);
+  on("problemModalCloseBtn", "click", closeProblemModal);
+  on("problemModalBackdrop", "click", closeProblemModal);
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeProblemModal();
     }
   });
-  byId("compareModeSelect").addEventListener("change", (e) => {
+  on("compareModeSelect", "change", (e) => {
     state.comparison.mode = e.target.value === "pair" ? "pair" : "all3";
     saveSession();
     renderComparisonSelectors();
     renderComparison();
   });
-  byId("compareLeftSelect").addEventListener("change", (e) => {
+  on("compareLeftSelect", "change", (e) => {
     state.comparison.left = e.target.value || "";
     saveSession();
     renderComparison();
   });
-  byId("compareRightSelect").addEventListener("change", (e) => {
+  on("compareRightSelect", "change", (e) => {
     state.comparison.right = e.target.value || "";
     saveSession();
     renderComparison();
@@ -1088,7 +1092,8 @@ function categorizeIssue(text) {
 async function runAiEnrichment() {
   const dataset = getActiveDataset();
   if (!dataset) return setStatus(t("aiNeedDataset"));
-  if (!byId("aiEnabled").checked) return setStatus(t("aiEnableFirst"));
+  const aiToggle = byId("aiEnabled");
+  if (aiToggle && !aiToggle.checked) return setStatus(t("aiEnableFirst"));
   const apiKey = getEffectiveApiKey();
   if (!apiKey) return setStatus(t("aiNeedKey"));
   persistApiKeyForSession(apiKey);
@@ -1154,16 +1159,31 @@ function isLikelyNetworkError(error) {
 
 function renderDatasetSelect() {
   const sel = byId("activeDatasetSelect");
+  const preferredTarget = loadLastActiveTarget();
+  const preferredDataset = preferredTarget ? state.datasets.find((d) => d.targetKey === preferredTarget) : null;
+  const fallbackDataset = state.datasets[0] || null;
+  const activeDataset = preferredDataset || fallbackDataset;
+  if (activeDataset) {
+    state.activeDatasetId = activeDataset.id;
+    persistLastActiveTarget();
+  } else {
+    state.activeDatasetId = null;
+  }
+  if (!sel) {
+    renderTargetFileStatus();
+    renderComparisonSelectors();
+    return;
+  }
   sel.innerHTML = "";
   if (!state.datasets.length) {
     const opt = document.createElement("option");
     opt.value = "";
     opt.textContent = t("noDatasetLoaded");
     sel.appendChild(opt);
-    byId("aiEnabled").checked = !!state.aiEnabled;
+    const aiToggle = byId("aiEnabled");
+    if (aiToggle) aiToggle.checked = !!state.aiEnabled;
     renderTargetFileStatus();
     renderComparisonSelectors();
-    renderQuickSwapSelect();
     return;
   }
   state.datasets.forEach((d) => {
@@ -1173,18 +1193,11 @@ function renderDatasetSelect() {
     opt.textContent = `${label} (${d.analysis.rowCount.toLocaleString()} rows)`;
     sel.appendChild(opt);
   });
-  const hasActive = state.datasets.some((d) => d.id === state.activeDatasetId);
-  if (!hasActive) {
-    const preferredTarget = loadLastActiveTarget();
-    const preferredDataset = preferredTarget ? state.datasets.find((d) => d.targetKey === preferredTarget) : null;
-    state.activeDatasetId = preferredDataset ? preferredDataset.id : state.datasets[0].id;
-  }
   sel.value = state.activeDatasetId;
-  persistLastActiveTarget();
-  byId("aiEnabled").checked = !!state.aiEnabled;
+  const aiToggle = byId("aiEnabled");
+  if (aiToggle) aiToggle.checked = !!state.aiEnabled;
   renderTargetFileStatus();
   renderComparisonSelectors();
-  renderQuickSwapSelect();
 }
 
 function renderQuickSwapSelect() {
@@ -1312,7 +1325,6 @@ function getComparisonDatasets() {
 function renderAll() {
   renderTargetFileStatus();
   renderComparisonSelectors();
-  renderQuickSwapSelect();
   renderActiveTab(state.activeTabId);
 }
 
@@ -2047,11 +2059,12 @@ function persistRules() {
 }
 
 function getActiveDataset() {
-  return state.datasets.find((d) => d.id === state.activeDatasetId) || null;
+  return state.datasets.find((d) => d.id === state.activeDatasetId) || state.datasets[0] || null;
 }
 
 function setStatus(message) {
-  byId("statusMessage").textContent = message;
+  const statusEl = byId("statusMessage");
+  if (statusEl) statusEl.textContent = message;
 }
 
 function byId(id) {
