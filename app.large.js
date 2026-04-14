@@ -81,7 +81,7 @@ const I18N = {
     handoverCases: "Handover Cases",
     intentHandoversTitle: "MAIN_INTENT Handover Overview",
     intentHandoverSearchPlaceholder: "Search by ContactID or ConversationID...",
-    intentHandoverSummary: "{shown} shown of {total} unique contacts",
+    intentHandoverSummary: "{shown} shown of {total} handover rows",
     intentHandoverModalTitle: "Handover Contact Detail",
     intentHandoverCardContact: "ContactID",
     intentHandoverCardConversations: "Conversation IDs",
@@ -225,7 +225,7 @@ const I18N = {
     handoverCases: "Overdrachtsgevallen",
     intentHandoversTitle: "MAIN_INTENT Handover Overzicht",
     intentHandoverSearchPlaceholder: "Zoek op ContactID of ConversationID...",
-    intentHandoverSummary: "{shown} zichtbaar van {total} unieke contacten",
+    intentHandoverSummary: "{shown} zichtbaar van {total} handover-rijen",
     intentHandoverModalTitle: "Handover Contactdetail",
     intentHandoverCardContact: "ContactID",
     intentHandoverCardConversations: "Conversation IDs",
@@ -1404,31 +1404,28 @@ function renderIntentHandovers() {
     return;
   }
 
-  const groups = buildMainIntentHandoverGroups(dataset.rows || []);
+  const handoverRows = collectMainIntentHandoverRows(dataset.rows || []);
   const search = String(state.intentHandoverView.search || "").trim().toLowerCase();
   if (searchInput) searchInput.value = state.intentHandoverView.search || "";
   const filtered = !search
-    ? groups
-    : groups.filter((group) => {
-        if (group.contactId.toLowerCase().includes(search)) return true;
-        return group.conversationIds.some((id) => id.toLowerCase().includes(search));
+    ? handoverRows
+    : handoverRows.filter((item) => {
+        if (item.contactId.toLowerCase().includes(search)) return true;
+        return item.conversationId.toLowerCase().includes(search);
       });
 
   state.intentHandoverModalItems = filtered;
-  wrap.innerHTML = filtered.map((group, idx) => `
+  wrap.innerHTML = filtered.map((item, idx) => `
     <article class="problem-example-card intent-handover-card" data-intent-handover-id="${idx}">
       <div class="problem-meta-row">
-        <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardContact"))}: ${escapeHtml(group.contactId)}</span>
-        <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardRows"))}: ${escapeHtml(String(group.rowCount))}</span>
+        <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardContact"))}: ${escapeHtml(item.contactId || "-")}</span>
       </div>
-      <div class="problem-line"><strong>${escapeHtml(t("intentHandoverCardConversations"))}:</strong> ${escapeHtml(group.conversationIds.slice(0, 3).join(", ") || "-")}</div>
-      <div class="problem-summary"><strong>${escapeHtml(t("intentHandoverCardTimespan"))}:</strong> ${escapeHtml(`${safeDay(group.firstTime)} - ${safeDay(group.lastTime)}`)}</div>
     </article>
   `).join("");
 
   summaryEl.textContent = t("intentHandoverSummary", {
     shown: filtered.length.toLocaleString(),
-    total: groups.length.toLocaleString()
+    total: handoverRows.length.toLocaleString()
   });
 
   wrap.querySelectorAll(".intent-handover-card").forEach((card) => {
@@ -1438,55 +1435,24 @@ function renderIntentHandovers() {
   });
 }
 
-function buildMainIntentHandoverGroups(rows) {
-  const map = new Map();
+function collectMainIntentHandoverRows(rows) {
+  const out = [];
   rows.forEach((row, idx) => {
     const intent = String(row.MAIN_INTENT || "").trim().toLowerCase();
     if (!(intent === "handover" || intent.includes("handover"))) return;
     const contactIdRaw = String(row.CONTACTID || "").trim();
     const fallbackId = String(row.CGNY_SESSION_ID || row.CGNY_CONVERSATION_ID || `missing-${idx}`).trim();
     const contactId = contactIdRaw || fallbackId || `missing-${idx}`;
-    const timestamp = isDatetime(row.TIMESTAMP) ? new Date(row.TIMESTAMP).toISOString() : new Date().toISOString();
     const conversationId = String(row.CGNY_CONVERSATION_ID || row.CGNY_SESSION_ID || "-").trim() || "-";
-
-    if (!map.has(contactId)) {
-      map.set(contactId, {
-        contactId,
-        rowCount: 0,
-        firstTime: timestamp,
-        lastTime: timestamp,
-        conversationIds: new Set(),
-        rows: []
-      });
-    }
-    const group = map.get(contactId);
-    group.rowCount += 1;
-    group.firstTime = group.firstTime < timestamp ? group.firstTime : timestamp;
-    group.lastTime = group.lastTime > timestamp ? group.lastTime : timestamp;
-    group.conversationIds.add(conversationId);
-    group.rows.push({
-      timestamp: row.TIMESTAMP || "-",
-      contactId: row.CONTACTID || "-",
+    const timestamp = row.TIMESTAMP || "-";
+    out.push({
+      contactId,
       conversationId,
-      mainIntent: row.MAIN_INTENT || "-",
-      intent: row.INTENT || "-",
-      channel: row.CHANNEL || "-",
-      execution: row.EXECUTION ?? "-",
-      executionTime: row.EXECUTIONTIME ?? "-",
-      inputText: row.INPUTTEXT_anonymized || "",
-      customerInput: row.CUSTOMER_INPUT_TEXT_anonymized || "",
-      unrecognizedQuestion: row.UNRECOGNIZED_QUESTION_anonymized || "",
-      handoverQuestion: row.HANDOVER_QUESTION_anonymized || ""
+      timestamp,
+      rowData: row
     });
   });
-
-  return Array.from(map.values())
-    .map((group) => ({
-      ...group,
-      conversationIds: Array.from(group.conversationIds),
-      rows: group.rows.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)))
-    }))
-    .sort((a, b) => b.rowCount - a.rowCount);
+  return out.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
 }
 
 function openIntentHandoverModal(itemId) {
@@ -1500,17 +1466,15 @@ function openIntentHandoverModal(itemId) {
   const header = `
     <div class="problem-meta-row">
       <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardContact"))}: ${escapeHtml(detail.contactId)}</span>
-      <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardRows"))}: ${escapeHtml(String(detail.rowCount))}</span>
-      <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardConversations"))}: ${escapeHtml(String(detail.conversationIds.length))}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("conversationIdLabel"))}: ${escapeHtml(detail.conversationId || "-")}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("timeLabel"))}: ${escapeHtml(String(detail.timestamp || "-"))}</span>
     </div>
   `;
-  const tableRows = detail.rows.map((row) => `
+  const dataEntries = Object.entries(detail.rowData || {});
+  const tableRows = dataEntries.map(([key, value]) => `
     <tr>
-      <td>${escapeHtml(String(row.timestamp))}</td>
-      <td>${escapeHtml(String(row.conversationId))}</td>
-      <td>${escapeHtml(String(row.intent))}</td>
-      <td>${escapeHtml(String(row.channel))}</td>
-      <td>${escapeHtml(String(row.inputText || row.customerInput || row.handoverQuestion || "-"))}</td>
+      <td>${escapeHtml(String(key))}</td>
+      <td>${escapeHtml(value == null ? "-" : String(value))}</td>
     </tr>
   `).join("");
   body.innerHTML = `
@@ -1519,11 +1483,8 @@ function openIntentHandoverModal(itemId) {
       <table>
         <thead>
           <tr>
-            <th>${escapeHtml(t("timeLabel"))}</th>
-            <th>${escapeHtml(t("conversationIdLabel"))}</th>
-            <th>${escapeHtml("Intent")}</th>
-            <th>${escapeHtml("Channel")}</th>
-            <th>${escapeHtml(t("summaryLabel"))}</th>
+            <th>${escapeHtml("Field")}</th>
+            <th>${escapeHtml("Value")}</th>
           </tr>
         </thead>
         <tbody>${tableRows}</tbody>
