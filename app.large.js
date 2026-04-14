@@ -61,6 +61,13 @@ const I18N = {
     keyInsights: "Key Insights",
     detectedColumnTypes: "Detected Column Types",
     dataQualityFindings: "Data Quality Findings",
+    tableColumnName: "Column",
+    tableDataType: "Type",
+    tableNonNullCount: "Non-null",
+    tableUniqueCount: "Unique",
+    tableMissingCount: "Missing",
+    tableMissingPct: "Missing %",
+    tableInconsistentCount: "Inconsistent",
     fullDataset: "Full Dataset",
     filterRowsPlaceholder: "Filter rows...",
     rowsPerPage: "Rows per page",
@@ -183,6 +190,13 @@ const I18N = {
     keyInsights: "Belangrijkste inzichten",
     detectedColumnTypes: "Gedetecteerde kolomtypes",
     dataQualityFindings: "Datakwaliteit bevindingen",
+    tableColumnName: "Kolom",
+    tableDataType: "Type",
+    tableNonNullCount: "Niet-leeg",
+    tableUniqueCount: "Uniek",
+    tableMissingCount: "Ontbrekend",
+    tableMissingPct: "Ontbrekend %",
+    tableInconsistentCount: "Inconsistent",
     fullDataset: "Volledige dataset",
     filterRowsPlaceholder: "Rijen filteren...",
     rowsPerPage: "Rijen per pagina",
@@ -365,26 +379,6 @@ function bindEvents() {
     applyTranslations();
     renderDatasetSelect();
     renderAll();
-  });
-  byId("tableFilterInput").addEventListener("input", (e) => {
-    state.table.filter = e.target.value.trim().toLowerCase();
-    state.table.page = 1;
-    renderDataTable();
-  });
-  byId("tablePageSize").addEventListener("change", (e) => {
-    state.table.pageSize = Number(e.target.value) || 25;
-    state.table.page = 1;
-    renderDataTable();
-  });
-  byId("tablePrevBtn").addEventListener("click", () => {
-    if (state.table.page > 1) {
-      state.table.page -= 1;
-      renderDataTable();
-    }
-  });
-  byId("tableNextBtn").addEventListener("click", () => {
-    state.table.page += 1;
-    renderDataTable();
   });
   byId("saveRulesBtn").addEventListener("click", saveRulesFromEditor);
   byId("resetRulesBtn").addEventListener("click", resetRulesToDefault);
@@ -1268,7 +1262,6 @@ function renderActiveTab(tabId) {
   if (activeTab === "dataExplorerTab") {
     renderColumnTypes();
     renderQuality();
-    renderDataTable();
     return;
   }
   if (activeTab === "handoversTab") {
@@ -1340,22 +1333,58 @@ function renderColumnTypes() {
   const dataset = getActiveDataset();
   byId("columnTypeTableWrap").innerHTML = "";
   if (!dataset) return;
-  renderTable(byId("columnTypeTableWrap"), dataset.analysis.columnTypes, ["column", "type", "nonNullCount", "uniqueCount"]);
+  const rows = (dataset.analysis.columnTypes || []).map((item) => ({
+    columnName: item.column || "",
+    dataType: item.type || "",
+    nonNullCount: Number(item.nonNullCount || 0).toLocaleString(),
+    uniqueCount: String(item.uniqueCount ?? "0")
+  }));
+  renderTable(
+    byId("columnTypeTableWrap"),
+    rows,
+    ["columnName", "dataType", "nonNullCount", "uniqueCount"],
+    null,
+    {
+      columnName: t("tableColumnName"),
+      dataType: t("tableDataType"),
+      nonNullCount: t("tableNonNullCount"),
+      uniqueCount: t("tableUniqueCount")
+    }
+  );
 }
 
 function renderQuality() {
   const dataset = getActiveDataset();
   byId("qualityTableWrap").innerHTML = "";
   if (!dataset) return;
-  renderTable(byId("qualityTableWrap"), dataset.analysis.quality, ["column", "missingCount", "missingPct", "inconsistentCount"]);
+  const rows = (dataset.analysis.quality || []).map((item) => ({
+    columnName: item.column || "",
+    missingCount: Number(item.missingCount || 0).toLocaleString(),
+    missingPct: `${Number(item.missingPct || 0).toFixed(2)}%`,
+    inconsistentCount: Number(item.inconsistentCount || 0).toLocaleString()
+  }));
+  renderTable(
+    byId("qualityTableWrap"),
+    rows,
+    ["columnName", "missingCount", "missingPct", "inconsistentCount"],
+    null,
+    {
+      columnName: t("tableColumnName"),
+      missingCount: t("tableMissingCount"),
+      missingPct: t("tableMissingPct"),
+      inconsistentCount: t("tableInconsistentCount")
+    }
+  );
 }
 
 function renderDataTable() {
   const dataset = getActiveDataset();
   const wrap = byId("dataTableWrap");
+  const pageInfoEl = byId("tablePageInfo");
+  if (!wrap || !pageInfoEl) return;
   if (!dataset) {
     wrap.innerHTML = "";
-    byId("tablePageInfo").textContent = "";
+    pageInfoEl.textContent = "";
     return;
   }
   const rows = [...(dataset.rows || [])];
@@ -1375,7 +1404,7 @@ function renderDataTable() {
     renderDataTable();
   });
   const suffix = dataset.analysis.previewOnly ? ` (preview ${rows.length.toLocaleString()}/${dataset.analysis.rowCount.toLocaleString()} rows)` : "";
-  byId("tablePageInfo").textContent = `Page ${state.table.page}/${totalPages} (${filtered.length.toLocaleString()} matched rows)${suffix}`;
+  pageInfoEl.textContent = `Page ${state.table.page}/${totalPages} (${filtered.length.toLocaleString()} matched rows)${suffix}`;
 }
 
 function renderHandovers() {
@@ -1697,12 +1726,12 @@ function destroyChart(id) {
   }
 }
 
-function renderTable(container, rows, columns, onSort) {
+function renderTable(container, rows, columns, onSort, headerLabels) {
   if (!rows || !rows.length) {
     container.innerHTML = `<p class='muted'>${escapeHtml(t("noDataAvailable"))}</p>`;
     return;
   }
-  const header = columns.map((col) => `<th data-key="${escapeHtml(col)}">${escapeHtml(col)}</th>`).join("");
+  const header = columns.map((col) => `<th data-key="${escapeHtml(col)}">${escapeHtml((headerLabels && headerLabels[col]) ? headerLabels[col] : col)}</th>`).join("");
   const body = rows.map((row) => `<tr>${columns.map((col) => `<td>${escapeHtml(row[col] == null ? "" : String(row[col]))}</td>`).join("")}</tr>`).join("");
   container.innerHTML = `<table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
   if (typeof onSort === "function") {
