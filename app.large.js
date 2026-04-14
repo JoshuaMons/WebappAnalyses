@@ -115,10 +115,10 @@ const I18N = {
     intentHandoversTitle: "MAIN_INTENT Handover Overview",
     intentHandoverSearchPlaceholder: "Search by ContactID or ConversationID...",
     intentHandoverSummary: "{shown} shown of {total} handover rows",
-    intentHandoverMinStepsLabel: "Min steps",
-    intentHandoverMaxStepsLabel: "Max steps",
     intentHandoverStepsLabel: "Steps to handover",
     intentHandoverPageInfo: "Page {page} of {total}",
+    intentHandoverGoToPageLabel: "Go to page",
+    intentHandoverGoToPageBtn: "Go",
     intentHandoverModalTitle: "Handover Contact Detail",
     intentHandoverCardContact: "ContactID",
     intentHandoverCardConversations: "Conversation IDs",
@@ -273,10 +273,10 @@ const I18N = {
     intentHandoversTitle: "MAIN_INTENT Handover Overzicht",
     intentHandoverSearchPlaceholder: "Zoek op ContactID of ConversationID...",
     intentHandoverSummary: "{shown} zichtbaar van {total} handover-rijen",
-    intentHandoverMinStepsLabel: "Min stappen",
-    intentHandoverMaxStepsLabel: "Max stappen",
     intentHandoverStepsLabel: "Stappen tot handover",
     intentHandoverPageInfo: "Pagina {page} van {total}",
+    intentHandoverGoToPageLabel: "Ga naar pagina",
+    intentHandoverGoToPageBtn: "Ga",
     intentHandoverModalTitle: "Handover Contactdetail",
     intentHandoverCardContact: "ContactID",
     intentHandoverCardConversations: "Conversation IDs",
@@ -397,8 +397,6 @@ const state = {
   },
   intentHandoverView: {
     search: "",
-    minSteps: "",
-    maxSteps: "",
     page: 1,
     pageSize: 20
   },
@@ -494,16 +492,6 @@ function bindEvents() {
     state.intentHandoverView.page = 1;
     renderIntentHandovers();
   });
-  on("intentHandoverMinStepsInput", "input", (e) => {
-    state.intentHandoverView.minSteps = String(e.target.value || "").trim();
-    state.intentHandoverView.page = 1;
-    renderIntentHandovers();
-  });
-  on("intentHandoverMaxStepsInput", "input", (e) => {
-    state.intentHandoverView.maxSteps = String(e.target.value || "").trim();
-    state.intentHandoverView.page = 1;
-    renderIntentHandovers();
-  });
   on("intentHandoverPrevBtn", "click", () => {
     state.intentHandoverView.page = Math.max(1, Number(state.intentHandoverView.page || 1) - 1);
     renderIntentHandovers();
@@ -511,6 +499,22 @@ function bindEvents() {
   on("intentHandoverNextBtn", "click", () => {
     state.intentHandoverView.page = Number(state.intentHandoverView.page || 1) + 1;
     renderIntentHandovers();
+  });
+  on("intentHandoverGoToPageBtn", "click", () => {
+    const input = byId("intentHandoverGoToPageInput");
+    const requested = Number.parseInt(String(input?.value || ""), 10);
+    if (Number.isFinite(requested) && requested > 0) {
+      state.intentHandoverView.page = requested;
+      renderIntentHandovers();
+    }
+  });
+  on("intentHandoverGoToPageInput", "keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const requested = Number.parseInt(String(e.target?.value || ""), 10);
+    if (Number.isFinite(requested) && requested > 0) {
+      state.intentHandoverView.page = requested;
+      renderIntentHandovers();
+    }
   });
   on("problemSortSelect", "change", (e) => {
     state.problemView.sortBy = e.target.value || "frequency_desc";
@@ -1548,8 +1552,7 @@ function renderIntentHandovers() {
   const wrap = byId("intentHandoverCardsWrap");
   const summaryEl = byId("intentHandoverSummary");
   const searchInput = byId("intentHandoverSearchInput");
-  const minStepsInput = byId("intentHandoverMinStepsInput");
-  const maxStepsInput = byId("intentHandoverMaxStepsInput");
+  const goToPageInput = byId("intentHandoverGoToPageInput");
   const prevBtn = byId("intentHandoverPrevBtn");
   const nextBtn = byId("intentHandoverNextBtn");
   const pageInfo = byId("intentHandoverPageInfo");
@@ -1558,6 +1561,7 @@ function renderIntentHandovers() {
     wrap.innerHTML = `<p class="muted">${escapeHtml(t("noDataAvailable"))}</p>`;
     summaryEl.textContent = t("intentHandoverSummary", { shown: 0, total: 0 });
     pageInfo.textContent = t("intentHandoverPageInfo", { page: 1, total: 1 });
+    if (goToPageInput) goToPageInput.value = "1";
     if (prevBtn) prevBtn.disabled = true;
     if (nextBtn) nextBtn.disabled = true;
     return;
@@ -1567,23 +1571,13 @@ function renderIntentHandovers() {
   const handoverRows = collectMainIntentHandoverRows(dataset.rows || []);
   const search = String(state.intentHandoverView.search || "").trim().toLowerCase();
   if (searchInput) searchInput.value = state.intentHandoverView.search || "";
-  if (minStepsInput) minStepsInput.value = state.intentHandoverView.minSteps || "";
-  if (maxStepsInput) maxStepsInput.value = state.intentHandoverView.maxSteps || "";
-  const minSteps = Number.parseInt(String(state.intentHandoverView.minSteps || ""), 10);
-  const maxSteps = Number.parseInt(String(state.intentHandoverView.maxSteps || ""), 10);
 
-  const filteredBySearch = !search
+  const filtered = !search
     ? handoverRows
     : handoverRows.filter((item) => {
         if (item.contactId.toLowerCase().includes(search)) return true;
         return item.conversationId.toLowerCase().includes(search);
       });
-
-  const filtered = filteredBySearch.filter((item) => {
-    if (Number.isFinite(minSteps) && item.stepsToHandover < minSteps) return false;
-    if (Number.isFinite(maxSteps) && item.stepsToHandover > maxSteps) return false;
-    return true;
-  });
 
   const pageSize = Number(state.intentHandoverView.pageSize || 20);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -1610,6 +1604,7 @@ function renderIntentHandovers() {
     page: currentPage,
     total: totalPages
   });
+  if (goToPageInput) goToPageInput.value = String(currentPage);
   if (prevBtn) prevBtn.disabled = currentPage <= 1;
   if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
 

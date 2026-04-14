@@ -115,10 +115,6 @@
         <h3 data-i18n="intentHandoversTitle">MAIN_INTENT Handover Overview</h3>
         <div class="controls-inline">
           <input id="intentHandoverSearchInput" type="text" data-i18n-placeholder="intentHandoverSearchPlaceholder" placeholder="Search by ContactID or ConversationID..." />
-          <label for="intentHandoverMinStepsInput" data-i18n="intentHandoverMinStepsLabel">Min steps</label>
-          <input id="intentHandoverMinStepsInput" type="number" min="1" step="1" placeholder="1" />
-          <label for="intentHandoverMaxStepsInput" data-i18n="intentHandoverMaxStepsLabel">Max steps</label>
-          <input id="intentHandoverMaxStepsInput" type="number" min="1" step="1" placeholder="999" />
           <span id="intentHandoverSummary" class="muted"></span>
         </div>
         <div id="intentHandoverCardsWrap" class="problem-example-grid"></div>
@@ -126,6 +122,9 @@
           <button id="intentHandoverPrevBtn" class="btn" data-i18n="prevBtn">Prev</button>
           <span id="intentHandoverPageInfo" class="muted"></span>
           <button id="intentHandoverNextBtn" class="btn" data-i18n="nextBtn">Next</button>
+          <label for="intentHandoverGoToPageInput" data-i18n="intentHandoverGoToPageLabel">Go to page</label>
+          <input id="intentHandoverGoToPageInput" type="number" min="1" step="1" value="1" />
+          <button id="intentHandoverGoToPageBtn" class="btn" data-i18n="intentHandoverGoToPageBtn">Go</button>
         </div>
       </article>
     </section>
