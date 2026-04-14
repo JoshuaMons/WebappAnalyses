@@ -20,6 +20,25 @@ const TARGET_DATASET_FILES = [
   { key: "essent genesys.csv", label: "Essent Genesys" }
 ];
 
+// Centralized field priority for schema drift between exports.
+const DB_FIELD_PRIORITY = {
+  conversationId: ["CGNY_SESSION_ID", "CONVERSATION_ID", "CGNY_CONVERSATION_ID"],
+  userMessage: ["CUSTOMER_INPUT_TEXT_anonymized", "INPUTTEXT_anonymized", "UNRECOGNIZED_QUESTION_anonymized"],
+  timestamp: ["TIMESTAMP", "STARTEDAT"],
+  status: ["GOALS", "COMPLETEDGOALSLIST"],
+  escalationFlag: ["HANDOVER_QUESTION_anonymized", "GOALS", "COMPLETEDGOALSLIST"],
+  category: ["MAIN_INTENT", "INTENT", "ENDPOINTNAME", "MEDIA_TYPE"],
+  goalsField: ["GOALS", "COMPLETEDGOALSLIST"]
+};
+
+// Rules used by the dedicated MAIN_INTENT handover tab.
+const INTENT_HANDOVER_CONFIG = {
+  mainIntentColumn: "MAIN_INTENT",
+  contactIdColumn: "CONTACTID",
+  sessionIdColumns: ["CGNY_SESSION_ID", "CGNY_CONVERSATION_ID"],
+  timestampColumn: "TIMESTAMP"
+};
+
 const DEFAULT_RULES = {
   handoverKeywords: ["agent", "human", "handover", "transfer", "specialist"],
   escalationKeywords: ["escalat", "handover", "transfer", "human", "agent"],
@@ -853,19 +872,20 @@ function normalizeObjectRowHeaders(rowObj) {
 }
 
 function detectConversationFields(columns) {
+  // Auto-map known columns first, then fallback to regex patterns.
   const columnSet = new Set(columns);
   const has = (name) => columnSet.has(name);
   const pick = (patterns) => columns.find((c) => patterns.some((p) => p.test(c.toLowerCase())));
   const pickExact = (names) => names.find((name) => has(name)) || null;
   return {
-    conversationId: pickExact(["CGNY_SESSION_ID", "CONVERSATION_ID", "CGNY_CONVERSATION_ID"]) || pick([/session.*id/, /conversation.*id/, /^conv_id$/, /^ticket/, /thread.*id$/, /^id$/]),
-    userMessage: pickExact(["CUSTOMER_INPUT_TEXT_anonymized", "INPUTTEXT_anonymized", "UNRECOGNIZED_QUESTION_anonymized"]) || pick([/user.*message/, /customer.*message/, /customer.*input/, /inputtext/, /question/, /user_text/, /^message$/]),
+    conversationId: pickExact(DB_FIELD_PRIORITY.conversationId) || pick([/session.*id/, /conversation.*id/, /^conv_id$/, /^ticket/, /thread.*id$/, /^id$/]),
+    userMessage: pickExact(DB_FIELD_PRIORITY.userMessage) || pick([/user.*message/, /customer.*message/, /customer.*input/, /inputtext/, /question/, /user_text/, /^message$/]),
     botResponse: pick([/bot.*response/, /assistant.*response/, /agent.*response/, /reply/, /response/]),
-    timestamp: pickExact(["TIMESTAMP", "STARTEDAT"]) || pick([/timestamp/, /created.*at/, /time/, /date/]),
-    status: pickExact(["GOALS", "COMPLETEDGOALSLIST"]) || pick([/status/, /resolved/, /escalat/, /outcome/]),
-    escalationFlag: pickExact(["HANDOVER_QUESTION_anonymized", "GOALS", "COMPLETEDGOALSLIST"]) || pick([/escalat/, /handover/, /human/, /agent_required/, /transfer/]),
-    category: pickExact(["MAIN_INTENT", "INTENT", "ENDPOINTNAME", "MEDIA_TYPE"]) || pick([/category/, /intent/, /topic/, /issue/]),
-    goalsField: pickExact(["GOALS", "COMPLETEDGOALSLIST"])
+    timestamp: pickExact(DB_FIELD_PRIORITY.timestamp) || pick([/timestamp/, /created.*at/, /time/, /date/]),
+    status: pickExact(DB_FIELD_PRIORITY.status) || pick([/status/, /resolved/, /escalat/, /outcome/]),
+    escalationFlag: pickExact(DB_FIELD_PRIORITY.escalationFlag) || pick([/escalat/, /handover/, /human/, /agent_required/, /transfer/]),
+    category: pickExact(DB_FIELD_PRIORITY.category) || pick([/category/, /intent/, /topic/, /issue/]),
+    goalsField: pickExact(DB_FIELD_PRIORITY.goalsField)
   };
 }
 
@@ -1404,6 +1424,7 @@ function renderIntentHandovers() {
     return;
   }
 
+  // Build a row-level list for every MAIN_INTENT handover record.
   const handoverRows = collectMainIntentHandoverRows(dataset.rows || []);
   const search = String(state.intentHandoverView.search || "").trim().toLowerCase();
   if (searchInput) searchInput.value = state.intentHandoverView.search || "";
@@ -1438,13 +1459,10 @@ function renderIntentHandovers() {
 function collectMainIntentHandoverRows(rows) {
   const out = [];
   rows.forEach((row, idx) => {
-    const intent = String(row.MAIN_INTENT || "").trim().toLowerCase();
-    if (!(intent === "handover" || intent.includes("handover"))) return;
-    const contactIdRaw = String(row.CONTACTID || "").trim();
-    const fallbackId = String(row.CGNY_SESSION_ID || row.CGNY_CONVERSATION_ID || `missing-${idx}`).trim();
-    const contactId = contactIdRaw || fallbackId || `missing-${idx}`;
-    const conversationId = String(row.CGNY_CONVERSATION_ID || row.CGNY_SESSION_ID || "-").trim() || "-";
-    const timestamp = row.TIMESTAMP || "-";
+    if (!isMainIntentHandover(row)) return;
+    const contactId = resolveHandoverContactId(row, idx);
+    const conversationId = resolveHandoverConversationId(row);
+    const timestamp = String(row[INTENT_HANDOVER_CONFIG.timestampColumn] || "-");
     out.push({
       contactId,
       conversationId,
@@ -1453,6 +1471,30 @@ function collectMainIntentHandoverRows(rows) {
     });
   });
   return out.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
+}
+
+function isMainIntentHandover(row) {
+  // Keep this permissive so values like "Handover - X" are still included.
+  const value = String(row[INTENT_HANDOVER_CONFIG.mainIntentColumn] || "").trim().toLowerCase();
+  return value === "handover" || value.includes("handover");
+}
+
+function resolveHandoverContactId(row, idx) {
+  // Prefer CONTACTID, fallback to session/conversation IDs to avoid dropping records.
+  const direct = String(row[INTENT_HANDOVER_CONFIG.contactIdColumn] || "").trim();
+  if (direct) return direct;
+  const fallback = INTENT_HANDOVER_CONFIG.sessionIdColumns
+    .map((col) => String(row[col] || "").trim())
+    .find(Boolean);
+  return fallback || `missing-${idx}`;
+}
+
+function resolveHandoverConversationId(row) {
+  // Conversation identity follows configured fallback order.
+  const id = INTENT_HANDOVER_CONFIG.sessionIdColumns
+    .map((col) => String(row[col] || "").trim())
+    .find(Boolean);
+  return id || "-";
 }
 
 function openIntentHandoverModal(itemId) {
