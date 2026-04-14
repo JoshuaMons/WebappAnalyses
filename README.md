@@ -20,7 +20,7 @@ Interactive dark-theme dashboard for support conversation analytics.
 - Optional AI enrichment with OpenAI `gpt-5.2` (can be toggled off for sensitive data)
 - Working clear-data flow with confirmation warning
 
-## Online Database Setup (Vercel / Render)
+## Online Database Setup (Vercel)
 
 1. Upload your `.db` file to a public file host (for example Vercel Blob public URL, R2 public URL, S3 public URL, etc.).
 2. Set environment variable:
