@@ -1753,8 +1753,8 @@ function saveSession() {
       comparison: state.comparison
     },
     {
-      datasets: [],
-      activeDatasetId: null,
+      datasets: recentDatasets.map((d) => compactDatasetForSessionTiny(d)),
+      activeDatasetId: state.activeDatasetId,
       aiEnabled: state.aiEnabled,
       comparison: state.comparison
     }
@@ -1769,12 +1769,7 @@ function saveSession() {
     }
   }
 
-  // Hard fail-safe: never break analysis flow due to browser quota.
-  try {
-    sessionStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Ignore if storage is unavailable.
-  }
+  // Keep previous session payload if writing a new one fails.
 }
 
 function compactDatasetForSession(dataset, rowLimit, includeRows) {
@@ -1819,6 +1814,38 @@ function compactDatasetForSession(dataset, rowLimit, includeRows) {
       isLargeMode: !!analysis.isLargeMode,
       previewOnly: !!analysis.previewOnly,
       notes
+    }
+  };
+}
+
+function compactDatasetForSessionTiny(dataset) {
+  const analysis = dataset.analysis || {};
+  return {
+    id: dataset.id,
+    name: dataset.name,
+    targetKey: dataset.targetKey || "",
+    targetLabel: dataset.targetLabel || "",
+    uploadedAt: dataset.uploadedAt,
+    rows: [],
+    analysis: {
+      rowCount: analysis.rowCount || 0,
+      columns: Array.isArray(analysis.columns) ? analysis.columns.slice(0, 60) : [],
+      columnTypes: [],
+      quality: [],
+      fields: analysis.fields || {},
+      totalConversations: analysis.totalConversations || 0,
+      statusCount: analysis.statusCount || { resolved: 0, unresolved: 0, escalated: 0 },
+      handoverCount: analysis.handoverCount || 0,
+      handoverRate: analysis.handoverRate || 0,
+      resolutionRate: analysis.resolutionRate || 0,
+      handoverRows: [],
+      handoverByCategory: analysis.handoverByCategory || {},
+      failureSignals: analysis.failureSignals || { repeatedQuestions: 0, negativeSentiment: 0, fallbackResponses: 0, longUnresolved: 0 },
+      topProblems: [],
+      timeline: [],
+      isLargeMode: !!analysis.isLargeMode,
+      previewOnly: true,
+      notes: ["Session restored in lightweight mode due storage quota."]
     }
   };
 }
