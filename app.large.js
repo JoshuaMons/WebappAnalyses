@@ -40,6 +40,7 @@ const I18N = {
     uploadLabel: "Upload database (.db)",
     analyzeUploadBtn: "Analyze Upload",
     aiToggle: "Enable AI-powered analysis (OpenAI GPT-5.2)",
+    aiControlTitle: "AI Controls",
     openAiKeyPlaceholder: "OpenAI API Key (optional if AI is off)",
     runAiBtn: "Run AI Enrichment",
     clearApiKeyBtn: "Clear API Key",
@@ -77,6 +78,10 @@ const I18N = {
     chartHandoversOverTime: "Handovers Over Time",
     chartHandoversByCategory: "Handovers by Issue Category",
     handoverCases: "Handover Cases",
+    handoverSearchPlaceholder: "Search handovers...",
+    handoverReasonFilterLabel: "Reason",
+    handoverReasonAll: "All reasons",
+    handoverFilterInfo: "{shown} shown of {total} handovers",
     topProblemCategories: "Top 5 Problem Categories",
     failureSignalDistribution: "Failure Signal Distribution",
     topProblemsExamples: "Top Problems & Example Conversations",
@@ -170,6 +175,7 @@ const I18N = {
     uploadLabel: "Upload database (.db)",
     analyzeUploadBtn: "Upload analyseren",
     aiToggle: "AI-analyse inschakelen (OpenAI GPT-5.2)",
+    aiControlTitle: "AI Bediening",
     openAiKeyPlaceholder: "OpenAI API sleutel (optioneel als AI uit staat)",
     runAiBtn: "AI verrijking starten",
     clearApiKeyBtn: "API sleutel wissen",
@@ -207,6 +213,10 @@ const I18N = {
     chartHandoversOverTime: "Overdrachten over tijd",
     chartHandoversByCategory: "Overdrachten per categorie",
     handoverCases: "Overdrachtsgevallen",
+    handoverSearchPlaceholder: "Zoek in overdrachten...",
+    handoverReasonFilterLabel: "Reden",
+    handoverReasonAll: "Alle redenen",
+    handoverFilterInfo: "{shown} zichtbaar van {total} overdrachten",
     topProblemCategories: "Top 5 probleemcategorieën",
     failureSignalDistribution: "Verdeling foutsignalen",
     topProblemsExamples: "Top problemen & voorbeeldgesprekken",
@@ -303,6 +313,10 @@ const state = {
     search: "",
     sortBy: "frequency_desc"
   },
+  handoverView: {
+    search: "",
+    reason: "all"
+  },
   problemModalItems: [],
   comparison: {
     mode: "all3",
@@ -374,6 +388,14 @@ function bindEvents() {
   on("problemSearchInput", "input", (e) => {
     state.problemView.search = String(e.target.value || "").trim().toLowerCase();
     renderProblems();
+  });
+  on("handoverSearchInput", "input", (e) => {
+    state.handoverView.search = String(e.target.value || "").trim().toLowerCase();
+    renderHandovers();
+  });
+  on("handoverReasonFilter", "change", (e) => {
+    state.handoverView.reason = String(e.target.value || "all");
+    renderHandovers();
   });
   on("problemSortSelect", "change", (e) => {
     state.problemView.sortBy = e.target.value || "frequency_desc";
@@ -1266,10 +1288,14 @@ function renderDataTable() {
 
 function renderHandovers() {
   const dataset = getActiveDataset();
+  const searchInput = byId("handoverSearchInput");
+  const reasonSelect = byId("handoverReasonFilter");
+  const filterInfo = byId("handoverFilterInfo");
   if (!dataset) {
     byId("kpiHandovers").textContent = "0";
     byId("kpiHandoverPct").textContent = "0%";
     byId("handoverTableWrap").innerHTML = "";
+    if (filterInfo) filterInfo.textContent = t("handoverFilterInfo", { shown: 0, total: 0 });
     destroyChart("handoverTimeline");
     destroyChart("handoverCategoryBar");
     return;
@@ -1292,7 +1318,45 @@ function renderHandovers() {
     labels: cat.map((c) => mapIssueLabel(c[0], a)),
     datasets: [{ label: t("handovers"), data: cat.map((c) => c[1]), backgroundColor: "#5c8cff" }]
   });
-  renderTable(byId("handoverTableWrap"), a.handoverRows.map((r) => ({ ...r, category: mapIssueLabel(r.category, a) })), ["conversationId", "handoverTime", "category", "reason", "turns"]);
+  const rows = (a.handoverRows || []).map((r) => ({ ...r, category: mapIssueLabel(r.category, a) }));
+  if (searchInput) {
+    searchInput.value = state.handoverView.search || "";
+  }
+  if (reasonSelect) {
+    const reasons = Array.from(new Set(rows.map((r) => String(r.reason || "").trim()).filter(Boolean))).sort((x, y) => x.localeCompare(y));
+    reasonSelect.innerHTML = "";
+    const allOpt = document.createElement("option");
+    allOpt.value = "all";
+    allOpt.textContent = t("handoverReasonAll");
+    reasonSelect.appendChild(allOpt);
+    reasons.forEach((reason) => {
+      const opt = document.createElement("option");
+      opt.value = reason;
+      opt.textContent = reason;
+      reasonSelect.appendChild(opt);
+    });
+    if ((state.handoverView.reason || "all") !== "all" && !reasons.includes(state.handoverView.reason)) {
+      state.handoverView.reason = "all";
+    }
+    reasonSelect.value = state.handoverView.reason || "all";
+  }
+
+  const search = String(state.handoverView.search || "").trim().toLowerCase();
+  const selectedReason = String(state.handoverView.reason || "all");
+  const filteredRows = rows.filter((row) => {
+    const reasonMatch = selectedReason === "all" || String(row.reason || "") === selectedReason;
+    if (!reasonMatch) return false;
+    if (!search) return true;
+    return Object.values(row).join(" ").toLowerCase().includes(search);
+  });
+
+  renderTable(byId("handoverTableWrap"), filteredRows, ["conversationId", "handoverTime", "category", "reason", "turns"]);
+  if (filterInfo) {
+    filterInfo.textContent = t("handoverFilterInfo", {
+      shown: filteredRows.length.toLocaleString(),
+      total: rows.length.toLocaleString()
+    });
+  }
 }
 
 function renderProblems() {
@@ -2032,7 +2096,14 @@ function getEffectiveApiKey() {
 
 function loadApiKeyFromSession() {
   try {
-    return sessionStorage.getItem(API_KEY_SESSION_KEY) || "";
+    const fromLocal = localStorage.getItem(API_KEY_SESSION_KEY) || "";
+    if (fromLocal) return fromLocal;
+    const fromSession = sessionStorage.getItem(API_KEY_SESSION_KEY) || "";
+    if (fromSession) {
+      localStorage.setItem(API_KEY_SESSION_KEY, fromSession);
+      return fromSession;
+    }
+    return "";
   } catch {
     return "";
   }
@@ -2042,9 +2113,11 @@ function persistApiKeyForSession(value) {
   const clean = String(value || "").trim();
   try {
     if (!clean) {
+      localStorage.removeItem(API_KEY_SESSION_KEY);
       sessionStorage.removeItem(API_KEY_SESSION_KEY);
       return;
     }
+    localStorage.setItem(API_KEY_SESSION_KEY, clean);
     sessionStorage.setItem(API_KEY_SESSION_KEY, clean);
   } catch {
     // Ignore storage issues.
@@ -2053,6 +2126,7 @@ function persistApiKeyForSession(value) {
 
 function clearApiKeyForSession() {
   try {
+    localStorage.removeItem(API_KEY_SESSION_KEY);
     sessionStorage.removeItem(API_KEY_SESSION_KEY);
   } catch {
     // Ignore storage issues.

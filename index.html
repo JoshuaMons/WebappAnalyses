@@ -84,6 +84,12 @@
       </div>
       <article class="panel">
         <h3 data-i18n="handoverCases">Handover Cases</h3>
+        <div class="controls-inline">
+          <input id="handoverSearchInput" type="text" data-i18n-placeholder="handoverSearchPlaceholder" placeholder="Search handovers..." />
+          <label for="handoverReasonFilter" data-i18n="handoverReasonFilterLabel">Reason</label>
+          <select id="handoverReasonFilter"></select>
+          <span id="handoverFilterInfo" class="muted"></span>
+        </div>
         <div id="handoverTableWrap" class="table-wrap"></div>
       </article>
     </section>
@@ -116,6 +122,18 @@
     </section>
 
     <section id="aiAnalysisTab" class="tab-content">
+      <article class="panel">
+        <h3 data-i18n="aiControlTitle">AI Controls</h3>
+        <div class="controls-inline">
+          <label class="toggle-wrap">
+            <input id="aiEnabled" type="checkbox" />
+            <span data-i18n="aiToggle">Enable AI-powered analysis (OpenAI GPT-5.2)</span>
+          </label>
+          <input id="openAiKey" type="password" data-i18n-placeholder="openAiKeyPlaceholder" placeholder="OpenAI API Key (optional if AI is off)" />
+          <button id="clearApiKeyBtn" class="btn" data-i18n="clearApiKeyBtn">Clear API Key</button>
+          <button id="runAiBtn" class="btn primary" data-i18n="runAiBtn">Run AI Enrichment</button>
+        </div>
+      </article>
       <article class="panel">
         <h3 data-i18n="aiAnalysisSummaryTitle">AI Analysis Summary</h3>
         <p id="aiAnalysisStatus" class="muted"></p>
