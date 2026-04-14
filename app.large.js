@@ -7,7 +7,6 @@ const MAX_UNIQUE_TRACK = 5000;
 const MAX_TRACKED_CONVERSATIONS = 400000;
 const MAX_HANDOVER_ROWS = 4000;
 const LARGE_ROW_THRESHOLD = 250000;
-const XLSX_JSON_SIZE_LIMIT_MB = 75;
 const MAX_SESSION_ROWS = 3000;
 const MAX_SESSION_DATASETS = 5;
 const LEGACY_STORAGE_KEYS = ["supportAnalyticsSessionV1"];
@@ -20,13 +19,6 @@ const TARGET_DATASET_FILES = [
   { key: "essent data.csv", label: "Essent Data" },
   { key: "essent genesys.csv", label: "Essent Genesys" }
 ];
-const SQLITE_TABLE_TO_TARGET = {
-  analytics: "essent cgny.csv",
-  sessions: "essent data.csv",
-  genesys: "essent genesys.csv"
-};
-const SQL_JS_WASM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/";
-let sqlJsPromise = null;
 
 const DEFAULT_RULES = {
   handoverKeywords: ["agent", "human", "handover", "transfer", "specialist"],
@@ -347,22 +339,6 @@ function bindEvents() {
     if (el) el.addEventListener(event, handler);
   };
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
-  on("uploadBtn", "click", handleUpload);
-  on("quickSwapBtn", "click", quickSwapDataset);
-  on("quickSwapSelect", "change", (e) => {
-    const nextId = e.target.value || "";
-    if (!nextId) return;
-    state.activeDatasetId = nextId;
-    persistLastActiveTarget();
-    saveSession();
-    renderDatasetSelect();
-    renderAll();
-    hideQuickSwapSelect();
-  });
-  document.addEventListener("click", (e) => {
-    const wrap = e.target?.closest?.(".quick-swap-wrap");
-    if (!wrap) hideQuickSwapSelect();
-  });
   on("activeDatasetSelect", "change", (e) => {
     state.activeDatasetId = e.target.value || null;
     persistLastActiveTarget();
@@ -435,46 +411,6 @@ function activateTab(tabId) {
   renderActiveTab(state.activeTabId);
 }
 
-async function handleUpload() {
-  const files = byId("datasetInput").files;
-  if (!files || !files.length) {
-    setStatus(t("statusNeedDbFile"));
-    return;
-  }
-  const dbFile = Array.from(files).find((f) => String(f.name || "").toLowerCase().endsWith(".db"));
-  if (!dbFile) {
-    setStatus(t("statusNeedDbFile"));
-    return;
-  }
-  try {
-    setStatus(t("statusAnalyzingFile", { name: dbFile.name }));
-    const datasets = await analyzeDbFileToDatasets(dbFile);
-    datasets.forEach((dataset) => upsertTargetDataset(dataset));
-    if (!datasets.length) {
-      setStatus(t("statusNoValidFiles"));
-      return;
-    }
-    state.activeDatasetId = datasets[0].id;
-    persistLastActiveTarget();
-    saveSession();
-    renderDatasetSelect();
-    renderAll();
-    setStatus(t("statusLoadedFromDb", { count: datasets.length }));
-  } catch (error) {
-    setStatus(t("statusUploadFailed", { error: error.message }));
-  }
-}
-
-function upsertTargetDataset(dataset) {
-  const existingIdx = state.datasets.findIndex((d) => d.targetKey === dataset.targetKey);
-  if (existingIdx >= 0) {
-    state.datasets[existingIdx] = dataset;
-  } else {
-    state.datasets.push(dataset);
-  }
-  state.datasets.sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
-}
-
 function clearData() {
   const ok = window.confirm(t("clearConfirm"));
   if (!ok) return;
@@ -486,109 +422,6 @@ function clearData() {
   renderDatasetSelect();
   renderAll();
   setStatus(t("clearDone"));
-}
-
-function quickSwapDataset() {
-  if (!state.datasets.length) {
-    setStatus(t("statusQuickSwapNoDataset"));
-    return;
-  }
-  const quickSwapSelect = byId("quickSwapSelect");
-  const willOpen = quickSwapSelect.hasAttribute("hidden");
-  renderQuickSwapSelect();
-  if (willOpen) {
-    quickSwapSelect.removeAttribute("hidden");
-    quickSwapSelect.focus();
-  } else {
-    hideQuickSwapSelect();
-  }
-}
-
-async function analyzeFileToDataset(file) {
-  const ext = file.name.split(".").pop().toLowerCase();
-  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  if (ext === "csv") {
-    const parsed = await parseAndAnalyzeCsvStream(file);
-    return {
-      id,
-      name: file.name,
-      uploadedAt: new Date().toISOString(),
-      rows: parsed.rows,
-      analysis: parsed.analysis
-    };
-  }
-
-  const sizeMb = file.size / (1024 * 1024);
-  if ((ext === "xlsx" || ext === "xls" || ext === "json") && sizeMb > XLSX_JSON_SIZE_LIMIT_MB) {
-    throw new Error(t("largeConvertCsv", { ext: ext.toUpperCase(), mb: sizeMb.toFixed(1) }));
-  }
-
-  const rows = ext === "json" ? await parseJson(file) : await parseExcel(file);
-  const normalized = normalizeRows(rows);
-  const analysis = analyzeRows(normalized, { source: ext.toUpperCase() });
-  return {
-    id,
-    name: file.name,
-    uploadedAt: new Date().toISOString(),
-    rows: normalized.slice(0, Math.min(MAX_STORED_ROWS, normalized.length)),
-    analysis
-  };
-}
-
-async function analyzeDbFileToDatasets(file) {
-  const SQL = await loadSqlJs();
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const db = new SQL.Database(bytes);
-  try {
-    const tableRows = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
-    const names = tableRows[0]?.values?.map((v) => String(v[0] || "").trim().toLowerCase()) || [];
-    const datasets = [];
-    for (const tableName of names) {
-      const targetKey = SQLITE_TABLE_TO_TARGET[tableName];
-      if (!targetKey) continue;
-      const targetDef = getTargetFileDefinition(targetKey);
-      if (!targetDef) continue;
-      const analyzed = analyzeSqliteTable(db, tableName);
-      datasets.push({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: `${file.name}::${tableName}`,
-        targetKey: targetDef.key,
-        targetLabel: targetDef.label,
-        uploadedAt: new Date().toISOString(),
-        rows: analyzed.rows,
-        analysis: analyzed.analysis
-      });
-    }
-    return datasets;
-  } finally {
-    db.close();
-  }
-}
-
-function analyzeSqliteTable(db, tableName) {
-  const engine = createStreamingAnalyzer(`sqlite:${tableName}`);
-  const safeTable = tableName.replace(/"/g, "\"\"");
-  const stmt = db.prepare(`SELECT * FROM "${safeTable}"`);
-  try {
-    while (stmt.step()) {
-      const row = normalizeObjectRowHeaders(stmt.getAsObject());
-      engine.ingestRows([row]);
-    }
-  } finally {
-    stmt.free();
-  }
-  return engine.finalize();
-}
-
-async function loadSqlJs() {
-  if (sqlJsPromise) return sqlJsPromise;
-  if (typeof initSqlJs !== "function") {
-    throw new Error("SQLite parser failed to load. Refresh and try again.");
-  }
-  sqlJsPromise = initSqlJs({
-    locateFile: (file) => `${SQL_JS_WASM_BASE}${file}`
-  });
-  return sqlJsPromise;
 }
 
 function parseAndAnalyzeCsvStream(file) {
@@ -1170,7 +1003,6 @@ function renderDatasetSelect() {
     state.activeDatasetId = null;
   }
   if (!sel) {
-    renderTargetFileStatus();
     renderComparisonSelectors();
     return;
   }
@@ -1182,7 +1014,6 @@ function renderDatasetSelect() {
     sel.appendChild(opt);
     const aiToggle = byId("aiEnabled");
     if (aiToggle) aiToggle.checked = !!state.aiEnabled;
-    renderTargetFileStatus();
     renderComparisonSelectors();
     return;
   }
@@ -1196,55 +1027,7 @@ function renderDatasetSelect() {
   sel.value = state.activeDatasetId;
   const aiToggle = byId("aiEnabled");
   if (aiToggle) aiToggle.checked = !!state.aiEnabled;
-  renderTargetFileStatus();
   renderComparisonSelectors();
-}
-
-function renderQuickSwapSelect() {
-  const quickSwapSelect = byId("quickSwapSelect");
-  if (!quickSwapSelect) return;
-  quickSwapSelect.innerHTML = "";
-  if (!state.datasets.length) {
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = t("quickSwapChooseLabel");
-    quickSwapSelect.appendChild(opt);
-    quickSwapSelect.value = "";
-    return;
-  }
-  const ordered = state.datasets.slice().sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
-  ordered.forEach((d) => {
-    const opt = document.createElement("option");
-    opt.value = d.id;
-    opt.textContent = d.targetLabel || d.name;
-    quickSwapSelect.appendChild(opt);
-  });
-  if (state.activeDatasetId && ordered.some((d) => d.id === state.activeDatasetId)) {
-    quickSwapSelect.value = state.activeDatasetId;
-  } else {
-    quickSwapSelect.value = ordered[0]?.id || "";
-  }
-}
-
-function hideQuickSwapSelect() {
-  const quickSwapSelect = byId("quickSwapSelect");
-  if (!quickSwapSelect) return;
-  quickSwapSelect.setAttribute("hidden", "");
-}
-
-function renderTargetFileStatus() {
-  const wrap = byId("targetFilesStatus");
-  if (!wrap) return;
-  const rows = TARGET_DATASET_FILES.map((target) => {
-    const dataset = state.datasets.find((d) => d.targetKey === target.key);
-    return {
-      file: target.key,
-      label: target.label,
-      loaded: dataset ? "yes" : "no",
-      rows: dataset ? dataset.analysis.rowCount : 0
-    };
-  });
-  renderTable(wrap, rows, ["label", "file", "loaded", "rows"]);
 }
 
 function renderComparisonSelectors() {
@@ -1323,7 +1106,6 @@ function getComparisonDatasets() {
 }
 
 function renderAll() {
-  renderTargetFileStatus();
   renderComparisonSelectors();
   renderActiveTab(state.activeTabId);
 }
