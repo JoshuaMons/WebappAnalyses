@@ -106,7 +106,8 @@ const I18N = {
     statusLabel: "Status",
     timeLabel: "Time",
     summaryLabel: "Summary",
-    noExampleText: "No detailed example available."
+    noExampleText: "No detailed example available.",
+    categoryLabel: "Category"
     ,
     rulesTitle: "Detection Rules",
     rulesSubtitle: "Tune keywords and thresholds used for handover and failure detection.",
@@ -122,7 +123,15 @@ const I18N = {
     resetRulesBtn: "Reset Defaults",
     rulesSaved: "Detection rules saved.",
     rulesReset: "Detection rules reset to defaults.",
-    rulesApplyHint: "Rules are applied to newly uploaded datasets."
+    rulesApplyHint: "Rules are applied to newly uploaded datasets.",
+    problemSearchPlaceholder: "Search problems or examples...",
+    problemSortLabel: "Sort",
+    problemSortFrequencyDesc: "Frequency high to low",
+    problemSortFrequencyAsc: "Frequency low to high",
+    problemSortNameAsc: "Name A-Z",
+    problemSortNameDesc: "Name Z-A",
+    closeBtn: "Close",
+    problemDetailTitle: "Conversation Detail"
   },
   nl: {
     appTitle: "Support Analyse Dashboard",
@@ -206,7 +215,8 @@ const I18N = {
     statusLabel: "Status",
     timeLabel: "Tijd",
     summaryLabel: "Samenvatting",
-    noExampleText: "Geen gedetailleerd voorbeeld beschikbaar."
+    noExampleText: "Geen gedetailleerd voorbeeld beschikbaar.",
+    categoryLabel: "Categorie"
     ,
     rulesTitle: "Detectieregels",
     rulesSubtitle: "Pas keywords en drempels aan voor handover- en foutdetectie.",
@@ -222,7 +232,15 @@ const I18N = {
     resetRulesBtn: "Standaard herstellen",
     rulesSaved: "Detectieregels opgeslagen.",
     rulesReset: "Detectieregels hersteld naar standaard.",
-    rulesApplyHint: "Regels worden toegepast op nieuw geuploade datasets."
+    rulesApplyHint: "Regels worden toegepast op nieuw geuploade datasets.",
+    problemSearchPlaceholder: "Zoek in problemen of voorbeelden...",
+    problemSortLabel: "Sorteren",
+    problemSortFrequencyDesc: "Frequentie hoog naar laag",
+    problemSortFrequencyAsc: "Frequentie laag naar hoog",
+    problemSortNameAsc: "Naam A-Z",
+    problemSortNameDesc: "Naam Z-A",
+    closeBtn: "Sluiten",
+    problemDetailTitle: "Gespreksdetail"
   }
 };
 
@@ -233,6 +251,11 @@ const state = {
   language: "en",
   rules: cloneDefaultRules(),
   regexes: buildRuleRegexes(cloneDefaultRules()),
+  problemView: {
+    search: "",
+    sortBy: "frequency_desc"
+  },
+  problemModalItems: [],
   table: {
     sortKey: null,
     sortDir: 1,
@@ -312,6 +335,21 @@ function bindEvents() {
   });
   byId("saveRulesBtn").addEventListener("click", saveRulesFromEditor);
   byId("resetRulesBtn").addEventListener("click", resetRulesToDefault);
+  byId("problemSearchInput").addEventListener("input", (e) => {
+    state.problemView.search = String(e.target.value || "").trim().toLowerCase();
+    renderProblems();
+  });
+  byId("problemSortSelect").addEventListener("change", (e) => {
+    state.problemView.sortBy = e.target.value || "frequency_desc";
+    renderProblems();
+  });
+  byId("problemModalCloseBtn").addEventListener("click", closeProblemModal);
+  byId("problemModalBackdrop").addEventListener("click", closeProblemModal);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeProblemModal();
+    }
+  });
 }
 
 function activateTab(tabId) {
@@ -1075,22 +1113,73 @@ function renderProblems() {
     labels: ["Repeated Questions", "Negative Sentiment", "Fallback Responses", "Long Unresolved"],
     datasets: [{ data: [a.failureSignals.repeatedQuestions, a.failureSignals.negativeSentiment, a.failureSignals.fallbackResponses, a.failureSignals.longUnresolved], backgroundColor: ["#5c8cff", "#ff5f77", "#f4b648", "#8a7aff"] }]
   });
-  byId("problemExamplesWrap").innerHTML = a.topProblems.map((p) => {
+  let problems = [...(a.topProblems || [])];
+  const search = state.problemView.search;
+  if (search) {
+    problems = problems.filter((p) => {
+      const label = mapIssueLabel(p.problem, a).toLowerCase();
+      if (label.includes(search)) return true;
+      return (p.examples || []).some((ex) => {
+        if (typeof ex === "string") return ex.toLowerCase().includes(search);
+        return Object.values(ex || {}).join(" ").toLowerCase().includes(search);
+      });
+    });
+  }
+
+  problems.sort((x, y) => {
+    const sx = mapIssueLabel(x.problem, a).toLowerCase();
+    const sy = mapIssueLabel(y.problem, a).toLowerCase();
+    switch (state.problemView.sortBy) {
+      case "frequency_asc":
+        return x.frequency - y.frequency;
+      case "name_asc":
+        return sx.localeCompare(sy);
+      case "name_desc":
+        return sy.localeCompare(sx);
+      case "frequency_desc":
+      default:
+        return y.frequency - x.frequency;
+    }
+  });
+
+  state.problemModalItems = [];
+  byId("problemExamplesWrap").innerHTML = problems.map((p) => {
     const examples = (p.examples || []).map((ex) => {
-      if (typeof ex === "string") {
-        return `<div class="problem-example-card"><div class="problem-summary">${escapeHtml(ex)}</div></div>`;
-      }
+      const detail = typeof ex === "string"
+        ? {
+            category: mapIssueLabel(p.problem, a),
+            frequency: p.frequency,
+            conversationId: "-",
+            turns: "-",
+            status: "-",
+            time: "-",
+            user: "",
+            bot: "",
+            summary: ex
+          }
+        : {
+            category: mapIssueLabel(p.problem, a),
+            frequency: p.frequency,
+            conversationId: ex.conversationId || "-",
+            turns: String(ex.turns ?? "-"),
+            status: ex.status || "-",
+            time: ex.time ? safeDay(ex.time) : "-",
+            user: ex.user || "",
+            bot: ex.bot || "",
+            summary: ex.summary || t("noExampleText")
+          };
+      const exampleId = state.problemModalItems.push(detail) - 1;
       return `
-        <div class="problem-example-card">
+        <div class="problem-example-card" data-example-id="${exampleId}">
           <div class="problem-meta-row">
-            <span class="problem-meta-chip">${escapeHtml(t("conversationIdLabel"))}: ${escapeHtml(ex.conversationId || "-")}</span>
-            <span class="problem-meta-chip">${escapeHtml(t("turnsLabel"))}: ${escapeHtml(String(ex.turns ?? "-"))}</span>
-            <span class="problem-meta-chip">${escapeHtml(t("timeLabel"))}: ${escapeHtml(ex.time ? safeDay(ex.time) : "-")}</span>
+            <span class="problem-meta-chip">${escapeHtml(t("conversationIdLabel"))}: ${escapeHtml(detail.conversationId)}</span>
+            <span class="problem-meta-chip">${escapeHtml(t("turnsLabel"))}: ${escapeHtml(detail.turns)}</span>
+            <span class="problem-meta-chip">${escapeHtml(t("timeLabel"))}: ${escapeHtml(detail.time)}</span>
           </div>
-          <div class="problem-line"><strong>${escapeHtml(t("statusLabel"))}:</strong> ${escapeHtml(ex.status || "-")}</div>
-          <div class="problem-line"><strong>${escapeHtml(t("userMessageLabel"))}:</strong> ${escapeHtml(ex.user || "-")}</div>
-          <div class="problem-line"><strong>${escapeHtml(t("botResponseLabel"))}:</strong> ${escapeHtml(ex.bot || "-")}</div>
-          <div class="problem-summary"><strong>${escapeHtml(t("summaryLabel"))}:</strong> ${escapeHtml(ex.summary || t("noExampleText"))}</div>
+          <div class="problem-line"><strong>${escapeHtml(t("statusLabel"))}:</strong> ${escapeHtml(detail.status)}</div>
+          <div class="problem-line"><strong>${escapeHtml(t("userMessageLabel"))}:</strong> ${escapeHtml(detail.user || "-")}</div>
+          <div class="problem-line"><strong>${escapeHtml(t("botResponseLabel"))}:</strong> ${escapeHtml(detail.bot || "-")}</div>
+          <div class="problem-summary"><strong>${escapeHtml(t("summaryLabel"))}:</strong> ${escapeHtml(detail.summary)}</div>
         </div>`;
     }).join("");
 
@@ -1102,6 +1191,46 @@ function renderProblems() {
       </div>
     `;
   }).join("");
+
+  byId("problemExamplesWrap").querySelectorAll(".problem-example-card[data-example-id]").forEach((card) => {
+    card.addEventListener("click", () => openProblemModal(Number(card.getAttribute("data-example-id"))));
+  });
+}
+
+function openProblemModal(exampleId) {
+  const detail = state.problemModalItems[exampleId];
+  if (!detail) return;
+  const modal = byId("problemDetailModal");
+  const backdrop = byId("problemModalBackdrop");
+  const body = byId("problemDetailBody");
+  if (!modal || !backdrop || !body) return;
+
+  body.innerHTML = `
+    <div class="problem-meta-row">
+      <span class="problem-meta-chip">${escapeHtml(t("conversationIdLabel"))}: ${escapeHtml(detail.conversationId)}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("turnsLabel"))}: ${escapeHtml(detail.turns)}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("timeLabel"))}: ${escapeHtml(detail.time)}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("statusLabel"))}: ${escapeHtml(detail.status)}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("categoryLabel"))}: ${escapeHtml(detail.category)}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("frequency"))}: ${escapeHtml(String(detail.frequency))}</span>
+    </div>
+    <div class="problem-line"><strong>${escapeHtml(t("userMessageLabel"))}:</strong></div>
+    <div class="problem-summary">${escapeHtml(detail.user || "-")}</div>
+    <div class="problem-line" style="margin-top:0.6rem;"><strong>${escapeHtml(t("botResponseLabel"))}:</strong></div>
+    <div class="problem-summary">${escapeHtml(detail.bot || "-")}</div>
+    <div class="problem-line" style="margin-top:0.6rem;"><strong>${escapeHtml(t("summaryLabel"))}:</strong></div>
+    <div class="problem-summary">${escapeHtml(detail.summary || t("noExampleText"))}</div>
+  `;
+
+  backdrop.hidden = false;
+  modal.hidden = false;
+}
+
+function closeProblemModal() {
+  const modal = byId("problemDetailModal");
+  const backdrop = byId("problemModalBackdrop");
+  if (modal) modal.hidden = true;
+  if (backdrop) backdrop.hidden = true;
 }
 
 function renderAiAnalysis() {

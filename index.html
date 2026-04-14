@@ -144,6 +144,16 @@
       </div>
       <article class="panel">
         <h3 data-i18n="topProblemsExamples">Top Problems & Example Conversations</h3>
+        <div class="controls-inline">
+          <input id="problemSearchInput" type="text" data-i18n-placeholder="problemSearchPlaceholder" placeholder="Search problems or examples..." />
+          <label for="problemSortSelect" data-i18n="problemSortLabel">Sort</label>
+          <select id="problemSortSelect">
+            <option value="frequency_desc" data-i18n="problemSortFrequencyDesc">Frequency high to low</option>
+            <option value="frequency_asc" data-i18n="problemSortFrequencyAsc">Frequency low to high</option>
+            <option value="name_asc" data-i18n="problemSortNameAsc">Name A-Z</option>
+            <option value="name_desc" data-i18n="problemSortNameDesc">Name Z-A</option>
+          </select>
+        </div>
         <div id="problemExamplesWrap"></div>
       </article>
     </section>
@@ -225,5 +235,14 @@
       </article>
     </section>
   </main>
+
+  <div id="problemModalBackdrop" class="modal-backdrop" hidden></div>
+  <div id="problemDetailModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="problemDetailModalTitle" hidden>
+    <div class="modal-header">
+      <h3 id="problemDetailModalTitle" data-i18n="problemDetailTitle">Conversation Detail</h3>
+      <button id="problemModalCloseBtn" class="btn" data-i18n="closeBtn">Close</button>
+    </div>
+    <div id="problemDetailBody" class="modal-body"></div>
+  </div>
 </body>
 </html>
