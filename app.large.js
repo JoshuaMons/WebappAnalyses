@@ -1,6 +1,17 @@
 const STORAGE_KEY = "supportAnalyticsSessionV2";
 const PERSISTENT_STORAGE_KEY = "supportAnalyticsPersistentV1";
 const chartStore = {};
+const SQL_JS_WASM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/";
+const DEFAULT_DB_SOURCES = [
+  "/data/fontys_cgny.db",
+  "/fontys_cgny.db"
+];
+const SQLITE_TABLE_TO_TARGET = {
+  analytics: "essent cgny.csv",
+  sessions: "essent data.csv",
+  genesys: "essent genesys.csv"
+};
+let sqlJsPromise = null;
 
 const MAX_PREVIEW_ROWS = 30000;
 const MAX_STORED_ROWS = 30000;
@@ -130,6 +141,8 @@ const I18N = {
     statusNoValidFiles: "No valid database selected.",
     statusAnalyzingFile: "Analyzing {name}...",
     statusLoadedFromDb: "Loaded {count} dataset(s) from database.",
+    statusLoadingDefaultDb: "Loading default database...",
+    statusDefaultDbMissing: "No default database source found.",
     statusAnalyzedFiles: "Analyzed {count} file(s).",
     statusUploadFailed: "Upload failed: {error}",
     clearConfirm: "You are about to clear the dataset(s). Are you sure?",
@@ -274,6 +287,8 @@ const I18N = {
     statusNoValidFiles: "Geen geldige database geselecteerd.",
     statusAnalyzingFile: "Bezig met analyseren van {name}...",
     statusLoadedFromDb: "{count} dataset(s) geladen vanuit database.",
+    statusLoadingDefaultDb: "Standaarddatabase wordt geladen...",
+    statusDefaultDbMissing: "Geen standaarddatabasebron gevonden.",
     statusAnalyzedFiles: "{count} bestand(en) geanalyseerd.",
     statusUploadFailed: "Upload mislukt: {error}",
     clearConfirm: "Je staat op het punt de dataset(s) te wissen. Weet je het zeker?",
@@ -374,9 +389,13 @@ const state = {
   }
 };
 
-document.addEventListener("DOMContentLoaded", init);
+document.addEventListener("DOMContentLoaded", () => {
+  init().catch((error) => {
+    setStatus(t("statusUploadFailed", { error: error.message }));
+  });
+});
 
-function init() {
+async function init() {
   cleanupLegacyStorage();
   loadSession();
   state.language = loadLanguage();
@@ -387,6 +406,7 @@ function init() {
   populateRulesEditor();
   renderDatasetSelect();
   renderAll();
+  await ensureDefaultDatabaseLoaded();
 }
 
 function bindEvents() {
@@ -1908,6 +1928,87 @@ function saveSession() {
   }
 
   // Keep previous session payload if writing a new one fails.
+}
+
+async function ensureDefaultDatabaseLoaded() {
+  if (state.datasets.length) return;
+  setStatus(t("statusLoadingDefaultDb"));
+  for (const source of DEFAULT_DB_SOURCES) {
+    try {
+      const response = await fetch(source, { cache: "no-store" });
+      if (!response.ok) continue;
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const datasets = await analyzeDbBufferToDatasets(bytes, source);
+      if (!datasets.length) continue;
+      state.datasets = datasets;
+      state.activeDatasetId = datasets[0].id;
+      persistLastActiveTarget();
+      saveSession();
+      renderDatasetSelect();
+      renderAll();
+      setStatus(t("statusLoadedFromDb", { count: datasets.length }));
+      return;
+    } catch {
+      // Try next configured source.
+    }
+  }
+  setStatus(t("statusDefaultDbMissing"));
+}
+
+async function analyzeDbBufferToDatasets(bytes, sourceName) {
+  const SQL = await loadSqlJs();
+  const db = new SQL.Database(bytes);
+  try {
+    const tableRows = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+    const names = tableRows[0]?.values?.map((v) => String(v[0] || "").trim().toLowerCase()) || [];
+    const out = [];
+    names.forEach((tableName) => {
+      const targetKey = SQLITE_TABLE_TO_TARGET[tableName];
+      if (!targetKey) return;
+      const targetDef = getTargetFileDefinition(targetKey);
+      if (!targetDef) return;
+      const analyzed = analyzeSqliteTable(db, tableName);
+      out.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: `${sourceName}::${tableName}`,
+        targetKey: targetDef.key,
+        targetLabel: targetDef.label,
+        uploadedAt: new Date().toISOString(),
+        rows: analyzed.rows,
+        analysis: analyzed.analysis
+      });
+    });
+    return out.sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
+  } finally {
+    db.close();
+  }
+}
+
+function analyzeSqliteTable(db, tableName) {
+  const engine = createStreamingAnalyzer(`sqlite:${tableName}`);
+  const safeTable = tableName.replace(/"/g, "\"\"");
+  const stmt = db.prepare(`SELECT * FROM "${safeTable}"`);
+  try {
+    while (stmt.step()) {
+      const row = normalizeObjectRowHeaders(stmt.getAsObject());
+      engine.ingestRows([row]);
+    }
+  } finally {
+    stmt.free();
+  }
+  return engine.finalize();
+}
+
+async function loadSqlJs() {
+  if (typeof initSqlJs !== "function") {
+    throw new Error("sql.js script not loaded");
+  }
+  if (!sqlJsPromise) {
+    sqlJsPromise = initSqlJs({
+      locateFile: (file) => `${SQL_JS_WASM_BASE}${file}`
+    });
+  }
+  return await sqlJsPromise;
 }
 
 function loadPersistedPayload() {
