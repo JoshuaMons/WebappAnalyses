@@ -4,6 +4,7 @@ const chartStore = {};
 const SQL_JS_WASM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/";
 const DEFAULT_DB_SOURCES = [
   "/data/fontys_cgny.db",
+  "/api/live-db",
   "/fontys_cgny.db"
 ];
 const SQLITE_TABLE_TO_TARGET = {
@@ -2265,7 +2266,7 @@ function detectInvalidSqliteBuffer(bytes) {
   const decoder = new TextDecoder("utf-8");
   const headerText = decoder.decode(bytes.subarray(0, Math.min(bytes.length, 120))).trim();
   if (headerText.startsWith("version https://git-lfs.github.com/spec/v1")) {
-    return "Git LFS pointer received instead of the real .db file";
+    return "Git LFS pointer received instead of the real .db file (use /api/live-db with SUPPORT_ANALYTICS_DB_URL in deploy)";
   }
   const sqliteSignature = "SQLite format 3\u0000";
   const rawHeader = decoder.decode(bytes.subarray(0, 16));
