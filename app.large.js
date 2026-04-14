@@ -1474,9 +1474,9 @@ function collectMainIntentHandoverRows(rows) {
 }
 
 function isMainIntentHandover(row) {
-  // Keep this permissive so values like "Handover - X" are still included.
+  // Strict match: only rows where MAIN_INTENT equals "handover".
   const value = String(row[INTENT_HANDOVER_CONFIG.mainIntentColumn] || "").trim().toLowerCase();
-  return value === "handover" || value.includes("handover");
+  return value === "handover";
 }
 
 function resolveHandoverContactId(row, idx) {
