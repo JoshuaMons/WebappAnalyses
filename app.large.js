@@ -1,4 +1,5 @@
 const STORAGE_KEY = "supportAnalyticsSessionV2";
+const PERSISTENT_STORAGE_KEY = "supportAnalyticsPersistentV1";
 const chartStore = {};
 
 const MAX_PREVIEW_ROWS = 30000;
@@ -488,7 +489,12 @@ function clearData() {
   state.activeDatasetId = null;
   state.comparison = { mode: "all3", left: "", right: "" };
   state.table.page = 1;
-  sessionStorage.removeItem(STORAGE_KEY);
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(PERSISTENT_STORAGE_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
   renderDatasetSelect();
   renderAll();
   setStatus(t("clearDone"));
@@ -1847,7 +1853,7 @@ function renderTable(container, rows, columns, onSort, headerLabels) {
 
 function loadSession() {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = loadPersistedPayload();
     if (!raw) return;
     const parsed = JSON.parse(raw);
     state.datasets = Array.isArray(parsed.datasets) ? parsed.datasets.map((d) => hydrateTargetDataset(d)).filter(Boolean) : [];
@@ -1896,15 +1902,54 @@ function saveSession() {
   ];
 
   for (const payload of payloads) {
-    try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    if (savePayloadToStorage(payload)) {
       return;
-    } catch {
-      // Try a smaller payload tier.
     }
   }
 
   // Keep previous session payload if writing a new one fails.
+}
+
+function loadPersistedPayload() {
+  try {
+    const inSession = sessionStorage.getItem(STORAGE_KEY);
+    if (inSession) return inSession;
+  } catch {
+    // Ignore and try local storage.
+  }
+  try {
+    const inLocal = localStorage.getItem(PERSISTENT_STORAGE_KEY);
+    if (inLocal) {
+      try {
+        sessionStorage.setItem(STORAGE_KEY, inLocal);
+      } catch {
+        // Session restore is best-effort only.
+      }
+      return inLocal;
+    }
+  } catch {
+    // Ignore storage errors.
+  }
+  return "";
+}
+
+function savePayloadToStorage(payload) {
+  const serialized = JSON.stringify(payload);
+  let localOk = false;
+  let sessionOk = false;
+  try {
+    localStorage.setItem(PERSISTENT_STORAGE_KEY, serialized);
+    localOk = true;
+  } catch {
+    // Local storage may exceed quota; try smaller tier.
+  }
+  try {
+    sessionStorage.setItem(STORAGE_KEY, serialized);
+    sessionOk = true;
+  } catch {
+    // Session storage may exceed quota; try smaller tier.
+  }
+  return localOk || sessionOk;
 }
 
 function compactDatasetForSession(dataset, rowLimit, includeRows) {
