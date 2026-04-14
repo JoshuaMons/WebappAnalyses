@@ -1548,7 +1548,7 @@ function renderHandovers() {
 }
 
 function renderIntentHandovers() {
-  const dataset = getActiveDataset();
+  const datasets = Array.isArray(state.datasets) ? state.datasets : [];
   const wrap = byId("intentHandoverCardsWrap");
   const summaryEl = byId("intentHandoverSummary");
   const searchInput = byId("intentHandoverSearchInput");
@@ -1557,7 +1557,7 @@ function renderIntentHandovers() {
   const nextBtn = byId("intentHandoverNextBtn");
   const pageInfo = byId("intentHandoverPageInfo");
   if (!wrap || !summaryEl || !pageInfo) return;
-  if (!dataset) {
+  if (!datasets.length) {
     wrap.innerHTML = `<p class="muted">${escapeHtml(t("noDataAvailable"))}</p>`;
     summaryEl.textContent = t("intentHandoverSummary", { shown: 0, total: 0 });
     pageInfo.textContent = t("intentHandoverPageInfo", { page: 1, total: 1 });
@@ -1567,8 +1567,15 @@ function renderIntentHandovers() {
     return;
   }
 
-  // Build a row-level list for every MAIN_INTENT handover record.
-  const handoverRows = collectMainIntentHandoverRows(dataset.rows || []);
+  // Build a row-level list for every MAIN_INTENT handover record across all loaded datasets.
+  const mergedRows = datasets.flatMap((dataset) => {
+    const sourceName = dataset.targetLabel || dataset.name || "dataset";
+    return (dataset.rows || []).map((row) => ({
+      ...row,
+      __datasetSource: sourceName
+    }));
+  });
+  const handoverRows = collectMainIntentHandoverRows(mergedRows);
   const search = String(state.intentHandoverView.search || "").trim().toLowerCase();
   if (searchInput) searchInput.value = state.intentHandoverView.search || "";
 
@@ -2073,7 +2080,10 @@ function saveSession() {
 }
 
 async function ensureDefaultDatabaseLoaded() {
-  if (state.datasets.length) return;
+  if (state.datasets.length) {
+    const hasPreviewOnlyData = state.datasets.some((dataset) => !!dataset.analysis?.previewOnly);
+    if (!hasPreviewOnlyData) return;
+  }
   setStatus(t("statusLoadingDefaultDb"));
   let lastError = "";
   for (const source of DEFAULT_DB_SOURCES) {
