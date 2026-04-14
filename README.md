@@ -2,6 +2,10 @@
 
 Interactive dark-theme dashboard for support conversation analytics.
 
+## Latest Release Notes
+
+- See `RELEASE_NOTES_2026-04-14.md` for the full update summary.
+
 ## Features
 
 - Auto-load support database from `/api/live-db` (online source) with fallback to local `/data/fontys_cgny.db`
