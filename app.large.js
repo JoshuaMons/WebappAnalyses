@@ -102,6 +102,7 @@ const I18N = {
     tableMissingCount: "Missing",
     tableMissingPct: "Missing %",
     tableInconsistentCount: "Inconsistent",
+    tableSourceTable: "Source table",
     fullDataset: "Full Dataset",
     filterRowsPlaceholder: "Filter rows...",
     rowsPerPage: "Rows per page",
@@ -260,6 +261,7 @@ const I18N = {
     tableMissingCount: "Ontbrekend",
     tableMissingPct: "Ontbrekend %",
     tableInconsistentCount: "Inconsistent",
+    tableSourceTable: "Brontabel",
     fullDataset: "Volledige dataset",
     filterRowsPlaceholder: "Rijen filteren...",
     rowsPerPage: "Rijen per pagina",
@@ -381,6 +383,7 @@ const I18N = {
 
 const state = {
   datasets: [],
+  unifiedDataset: null,
   activeDatasetId: null,
   activeTabId: "overviewTab",
   aiEnabled: false,
@@ -559,6 +562,7 @@ function clearData() {
   const ok = window.confirm(t("clearConfirm"));
   if (!ok) return;
   state.datasets = [];
+  state.unifiedDataset = null;
   state.activeDatasetId = null;
   state.comparison = { mode: "all3", left: "", right: "" };
   state.table.page = 1;
@@ -599,7 +603,7 @@ async function handleDbUpload() {
       return;
     }
     state.datasets = datasets;
-    state.activeDatasetId = datasets[0].id;
+    rebuildUnifiedDataset();
     persistLastActiveTarget();
     saveSession();
     renderDatasetSelect();
@@ -754,6 +758,7 @@ function ingestRow(ctx, row) {
       fallback: false,
       repeated: false,
       category,
+      sourceTable: resolveSourceTable(row),
       firstTime: inferRowTime(row, ctx.fields),
       lastUserMessage: "",
       preview: extractConversationPreview(row, ctx.fields, text)
@@ -792,6 +797,7 @@ function buildRowAsConversation(row, text, category, fields) {
     fallback: detectFallbackSignal(text, row, fields),
     repeated: false,
     category,
+    sourceTable: resolveSourceTable(row),
     firstTime: inferRowTime(row, fields),
     preview: extractConversationPreview(row, fields, text)
   };
@@ -841,6 +847,7 @@ function applyConversationSummary(aggregate, conv) {
         conversationId: conv.id,
         handoverTime: conv.firstTime,
         category: conv.category,
+        sourceTable: conv.sourceTable || conv.preview?.sourceTable || "-",
         reason: detectHandoverReason(conv.handoverKeyword, conv.escalated, conv.fallback, conv.repeated),
         turns: conv.turns
       });
@@ -933,6 +940,33 @@ function analyzeRows(rows, info = {}) {
   engine.ingestRows(rows);
   const out = engine.finalize();
   return { ...out.analysis };
+}
+
+function rebuildUnifiedDataset() {
+  if (!Array.isArray(state.datasets) || !state.datasets.length) {
+    state.unifiedDataset = null;
+    state.activeDatasetId = null;
+    return;
+  }
+  const mergedRows = state.datasets.flatMap((dataset) => {
+    const sourceFromName = String(dataset.name || "").split("::").pop() || "";
+    const fallbackSource = sourceFromName || dataset.targetLabel || dataset.targetKey || "dataset";
+    return (dataset.rows || []).map((row) => ({
+      ...row,
+      __sourceTable: row.__sourceTable || fallbackSource
+    }));
+  });
+  const analysis = analyzeRows(mergedRows, { source: "all_tables" });
+  state.unifiedDataset = {
+    id: "all-tables",
+    name: "All tables",
+    targetKey: "all_tables",
+    targetLabel: "All tables",
+    uploadedAt: new Date().toISOString(),
+    rows: mergedRows,
+    analysis
+  };
+  state.activeDatasetId = state.unifiedDataset.id;
 }
 
 async function parseExcel(file) {
@@ -1062,6 +1096,7 @@ function extractConversationPreview(row, fields, text) {
     bot,
     status,
     timestamp,
+    sourceTable: resolveSourceTable(row),
     summary: trimText(text, 280)
   };
 }
@@ -1281,16 +1316,8 @@ function getTargetOrder(targetKey) {
 }
 
 function getComparisonDatasets() {
-  if (!state.datasets.length) return [];
-  if (state.comparison.mode === "pair") {
-    const left = state.datasets.find((d) => d.id === state.comparison.left);
-    const right = state.datasets.find((d) => d.id === state.comparison.right);
-    const list = [];
-    if (left) list.push(left);
-    if (right && right.id !== (left && left.id)) list.push(right);
-    return list;
-  }
-  return state.datasets.filter((d) => !!d.targetKey).sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
+  const unified = getActiveDataset();
+  return unified ? [unified] : [];
 }
 
 function renderAll() {
@@ -1538,7 +1565,15 @@ function renderHandovers() {
     return Object.values(row).join(" ").toLowerCase().includes(search);
   });
 
-  renderTable(byId("handoverTableWrap"), filteredRows, ["conversationId", "handoverTime", "category", "reason", "turns"]);
+  renderTable(
+    byId("handoverTableWrap"),
+    filteredRows,
+    ["conversationId", "handoverTime", "category", "sourceTable", "reason", "turns"],
+    null,
+    {
+      sourceTable: t("tableSourceTable")
+    }
+  );
   if (filterInfo) {
     filterInfo.textContent = t("handoverFilterInfo", {
       shown: filteredRows.length.toLocaleString(),
@@ -1548,7 +1583,7 @@ function renderHandovers() {
 }
 
 function renderIntentHandovers() {
-  const datasets = Array.isArray(state.datasets) ? state.datasets : [];
+  const dataset = getActiveDataset();
   const wrap = byId("intentHandoverCardsWrap");
   const summaryEl = byId("intentHandoverSummary");
   const searchInput = byId("intentHandoverSearchInput");
@@ -1557,7 +1592,7 @@ function renderIntentHandovers() {
   const nextBtn = byId("intentHandoverNextBtn");
   const pageInfo = byId("intentHandoverPageInfo");
   if (!wrap || !summaryEl || !pageInfo) return;
-  if (!datasets.length) {
+  if (!dataset) {
     wrap.innerHTML = `<p class="muted">${escapeHtml(t("noDataAvailable"))}</p>`;
     summaryEl.textContent = t("intentHandoverSummary", { shown: 0, total: 0 });
     pageInfo.textContent = t("intentHandoverPageInfo", { page: 1, total: 1 });
@@ -1567,15 +1602,8 @@ function renderIntentHandovers() {
     return;
   }
 
-  // Build a row-level list for every MAIN_INTENT handover record across all loaded datasets.
-  const mergedRows = datasets.flatMap((dataset) => {
-    const sourceName = dataset.targetLabel || dataset.name || "dataset";
-    return (dataset.rows || []).map((row) => ({
-      ...row,
-      __datasetSource: sourceName
-    }));
-  });
-  const handoverRows = collectMainIntentHandoverRows(mergedRows);
+  // Build a row-level list for every MAIN_INTENT handover record.
+  const handoverRows = collectMainIntentHandoverRows(dataset.rows || []);
   const search = String(state.intentHandoverView.search || "").trim().toLowerCase();
   if (searchInput) searchInput.value = state.intentHandoverView.search || "";
 
@@ -1639,6 +1667,7 @@ function collectMainIntentHandoverRows(rows) {
     out.push({
       contactId,
       conversationId,
+      sourceTable: resolveSourceTable(row),
       stepsToHandover,
       timestamp,
       rowData: row
@@ -1683,6 +1712,7 @@ function openIntentHandoverModal(itemId) {
     <div class="problem-meta-row">
       <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardContact"))}: ${escapeHtml(detail.contactId)}</span>
       <span class="problem-meta-chip">${escapeHtml(t("conversationIdLabel"))}: ${escapeHtml(detail.conversationId || "-")}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("tableSourceTable"))}: ${escapeHtml(detail.sourceTable || "-")}</span>
       <span class="problem-meta-chip">${escapeHtml(t("intentHandoverStepsLabel"))}: ${escapeHtml(String(detail.stepsToHandover || 0))}</span>
       <span class="problem-meta-chip">${escapeHtml(t("timeLabel"))}: ${escapeHtml(String(detail.timestamp || "-"))}</span>
     </div>
@@ -2036,8 +2066,10 @@ function loadSession() {
     if (!state.datasets.find((d) => d.id === state.activeDatasetId) && state.datasets.length) {
       state.activeDatasetId = state.datasets[state.datasets.length - 1].id;
     }
+    rebuildUnifiedDataset();
   } catch {
     state.datasets = [];
+    state.unifiedDataset = null;
   }
 }
 
@@ -2099,7 +2131,7 @@ async function ensureDefaultDatabaseLoaded() {
       const datasets = await analyzeDbBufferToDatasets(bytes, source);
       if (!datasets.length) continue;
       state.datasets = datasets;
-      state.activeDatasetId = datasets[0].id;
+      rebuildUnifiedDataset();
       persistLastActiveTarget();
       saveSession();
       renderDatasetSelect();
@@ -2153,6 +2185,7 @@ function analyzeSqliteTable(db, tableName) {
   try {
     while (stmt.step()) {
       const row = normalizeObjectRowHeaders(stmt.getAsObject());
+      row.__sourceTable = tableName;
       engine.ingestRows([row]);
     }
   } finally {
@@ -2398,7 +2431,12 @@ function persistRules() {
 }
 
 function getActiveDataset() {
+  if (state.unifiedDataset) return state.unifiedDataset;
   return state.datasets.find((d) => d.id === state.activeDatasetId) || state.datasets[0] || null;
+}
+
+function resolveSourceTable(row) {
+  return String(row?.__sourceTable || row?.SOURCE_TABLE || row?.source_table || "-");
 }
 
 function setStatus(message) {
