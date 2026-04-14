@@ -123,6 +123,10 @@ const I18N = {
     copyCellHint: "Click to copy value",
     copiedValue: "Value copied to clipboard.",
     copyFailed: "Copy failed. Clipboard access is unavailable.",
+    intentHandoverInputListsTitle: "Collected input values",
+    intentHandoverInputTextListTitle: "All INPUTTEXT_anonymized values",
+    intentHandoverCustomerInputListTitle: "All CUSTOMER_INPUT_TEXT_anonymized values",
+    intentHandoverNoInputValues: "No values found.",
     intentHandoverModalTitle: "Handover Contact Detail",
     intentHandoverCardContact: "ContactID",
     intentHandoverCardConversations: "Conversation IDs",
@@ -285,6 +289,10 @@ const I18N = {
     copyCellHint: "Klik om waarde te kopieren",
     copiedValue: "Waarde gekopieerd naar klembord.",
     copyFailed: "Kopieren mislukt. Klembordtoegang is niet beschikbaar.",
+    intentHandoverInputListsTitle: "Verzamelde invoerwaardes",
+    intentHandoverInputTextListTitle: "Alle INPUTTEXT_anonymized waardes",
+    intentHandoverCustomerInputListTitle: "Alle CUSTOMER_INPUT_TEXT_anonymized waardes",
+    intentHandoverNoInputValues: "Geen waardes gevonden.",
     intentHandoverModalTitle: "Handover Contactdetail",
     intentHandoverCardContact: "ContactID",
     intentHandoverCardConversations: "Conversation IDs",
@@ -1732,6 +1740,15 @@ function openIntentHandoverModal(itemId) {
       </td>
     </tr>
   `).join("");
+  const relatedRows = collectRelatedRowsForIntentDetail(detail);
+  const inputTextValues = collectDistinctFieldValues(relatedRows, "INPUTTEXT_anonymized");
+  const customerInputValues = collectDistinctFieldValues(relatedRows, "CUSTOMER_INPUT_TEXT_anonymized");
+  const inputTextItems = inputTextValues.length
+    ? inputTextValues.map((value) => `<li>${escapeHtml(value)}</li>`).join("")
+    : `<li>${escapeHtml(t("intentHandoverNoInputValues"))}</li>`;
+  const customerInputItems = customerInputValues.length
+    ? customerInputValues.map((value) => `<li>${escapeHtml(value)}</li>`).join("")
+    : `<li>${escapeHtml(t("intentHandoverNoInputValues"))}</li>`;
   body.innerHTML = `
     ${header}
     <div class="table-wrap">
@@ -1745,6 +1762,19 @@ function openIntentHandoverModal(itemId) {
         <tbody>${tableRows}</tbody>
       </table>
     </div>
+    <div class="panel" style="margin-top:0.8rem;">
+      <h4>${escapeHtml(t("intentHandoverInputListsTitle"))}</h4>
+      <div class="chart-grid">
+        <div>
+          <h5>${escapeHtml(t("intentHandoverInputTextListTitle"))}</h5>
+          <ul>${inputTextItems}</ul>
+        </div>
+        <div>
+          <h5>${escapeHtml(t("intentHandoverCustomerInputListTitle"))}</h5>
+          <ul>${customerInputItems}</ul>
+        </div>
+      </div>
+    </div>
   `;
   body.querySelectorAll("[data-copy-value]").forEach((cell) => {
     cell.addEventListener("click", async () => {
@@ -1756,6 +1786,30 @@ function openIntentHandoverModal(itemId) {
   });
   modal.hidden = false;
   backdrop.hidden = false;
+}
+
+function collectRelatedRowsForIntentDetail(detail) {
+  const dataset = getActiveDataset();
+  const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
+  const directMatches = rows.filter((row) => String(row[INTENT_HANDOVER_CONFIG.contactIdColumn] || "").trim() === detail.contactId);
+  if (directMatches.length) return directMatches;
+  if (detail.conversationId && detail.conversationId !== "-") {
+    return rows.filter((row) => resolveHandoverConversationId(row) === detail.conversationId);
+  }
+  return rows;
+}
+
+function collectDistinctFieldValues(rows, fieldName) {
+  const values = [];
+  const seen = new Set();
+  rows.forEach((row) => {
+    const value = String(row?.[fieldName] ?? "").trim();
+    if (!value) return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    values.push(value);
+  });
+  return values;
 }
 
 function closeIntentHandoverModal() {
