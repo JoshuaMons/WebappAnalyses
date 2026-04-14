@@ -115,6 +115,10 @@ const I18N = {
     intentHandoversTitle: "MAIN_INTENT Handover Overview",
     intentHandoverSearchPlaceholder: "Search by ContactID or ConversationID...",
     intentHandoverSummary: "{shown} shown of {total} handover rows",
+    intentHandoverMinStepsLabel: "Min steps",
+    intentHandoverMaxStepsLabel: "Max steps",
+    intentHandoverStepsLabel: "Steps to handover",
+    intentHandoverPageInfo: "Page {page} of {total}",
     intentHandoverModalTitle: "Handover Contact Detail",
     intentHandoverCardContact: "ContactID",
     intentHandoverCardConversations: "Conversation IDs",
@@ -269,6 +273,10 @@ const I18N = {
     intentHandoversTitle: "MAIN_INTENT Handover Overzicht",
     intentHandoverSearchPlaceholder: "Zoek op ContactID of ConversationID...",
     intentHandoverSummary: "{shown} zichtbaar van {total} handover-rijen",
+    intentHandoverMinStepsLabel: "Min stappen",
+    intentHandoverMaxStepsLabel: "Max stappen",
+    intentHandoverStepsLabel: "Stappen tot handover",
+    intentHandoverPageInfo: "Pagina {page} van {total}",
     intentHandoverModalTitle: "Handover Contactdetail",
     intentHandoverCardContact: "ContactID",
     intentHandoverCardConversations: "Conversation IDs",
@@ -388,7 +396,11 @@ const state = {
     reason: "all"
   },
   intentHandoverView: {
-    search: ""
+    search: "",
+    minSteps: "",
+    maxSteps: "",
+    page: 1,
+    pageSize: 20
   },
   intentHandoverModalItems: [],
   problemModalItems: [],
@@ -479,6 +491,25 @@ function bindEvents() {
   });
   on("intentHandoverSearchInput", "input", (e) => {
     state.intentHandoverView.search = String(e.target.value || "").trim().toLowerCase();
+    state.intentHandoverView.page = 1;
+    renderIntentHandovers();
+  });
+  on("intentHandoverMinStepsInput", "input", (e) => {
+    state.intentHandoverView.minSteps = String(e.target.value || "").trim();
+    state.intentHandoverView.page = 1;
+    renderIntentHandovers();
+  });
+  on("intentHandoverMaxStepsInput", "input", (e) => {
+    state.intentHandoverView.maxSteps = String(e.target.value || "").trim();
+    state.intentHandoverView.page = 1;
+    renderIntentHandovers();
+  });
+  on("intentHandoverPrevBtn", "click", () => {
+    state.intentHandoverView.page = Math.max(1, Number(state.intentHandoverView.page || 1) - 1);
+    renderIntentHandovers();
+  });
+  on("intentHandoverNextBtn", "click", () => {
+    state.intentHandoverView.page = Number(state.intentHandoverView.page || 1) + 1;
     renderIntentHandovers();
   });
   on("problemSortSelect", "change", (e) => {
@@ -1517,10 +1548,18 @@ function renderIntentHandovers() {
   const wrap = byId("intentHandoverCardsWrap");
   const summaryEl = byId("intentHandoverSummary");
   const searchInput = byId("intentHandoverSearchInput");
-  if (!wrap || !summaryEl) return;
+  const minStepsInput = byId("intentHandoverMinStepsInput");
+  const maxStepsInput = byId("intentHandoverMaxStepsInput");
+  const prevBtn = byId("intentHandoverPrevBtn");
+  const nextBtn = byId("intentHandoverNextBtn");
+  const pageInfo = byId("intentHandoverPageInfo");
+  if (!wrap || !summaryEl || !pageInfo) return;
   if (!dataset) {
     wrap.innerHTML = `<p class="muted">${escapeHtml(t("noDataAvailable"))}</p>`;
     summaryEl.textContent = t("intentHandoverSummary", { shown: 0, total: 0 });
+    pageInfo.textContent = t("intentHandoverPageInfo", { page: 1, total: 1 });
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
     return;
   }
 
@@ -1528,18 +1567,37 @@ function renderIntentHandovers() {
   const handoverRows = collectMainIntentHandoverRows(dataset.rows || []);
   const search = String(state.intentHandoverView.search || "").trim().toLowerCase();
   if (searchInput) searchInput.value = state.intentHandoverView.search || "";
-  const filtered = !search
+  if (minStepsInput) minStepsInput.value = state.intentHandoverView.minSteps || "";
+  if (maxStepsInput) maxStepsInput.value = state.intentHandoverView.maxSteps || "";
+  const minSteps = Number.parseInt(String(state.intentHandoverView.minSteps || ""), 10);
+  const maxSteps = Number.parseInt(String(state.intentHandoverView.maxSteps || ""), 10);
+
+  const filteredBySearch = !search
     ? handoverRows
     : handoverRows.filter((item) => {
         if (item.contactId.toLowerCase().includes(search)) return true;
         return item.conversationId.toLowerCase().includes(search);
       });
 
-  state.intentHandoverModalItems = filtered;
-  wrap.innerHTML = filtered.map((item, idx) => `
+  const filtered = filteredBySearch.filter((item) => {
+    if (Number.isFinite(minSteps) && item.stepsToHandover < minSteps) return false;
+    if (Number.isFinite(maxSteps) && item.stepsToHandover > maxSteps) return false;
+    return true;
+  });
+
+  const pageSize = Number(state.intentHandoverView.pageSize || 20);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(Math.max(1, Number(state.intentHandoverView.page || 1)), totalPages);
+  state.intentHandoverView.page = currentPage;
+  const startIdx = (currentPage - 1) * pageSize;
+  const pageItems = filtered.slice(startIdx, startIdx + pageSize);
+
+  state.intentHandoverModalItems = pageItems;
+  wrap.innerHTML = pageItems.map((item, idx) => `
     <article class="problem-example-card intent-handover-card" data-intent-handover-id="${idx}">
       <div class="problem-meta-row">
         <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardContact"))}: ${escapeHtml(item.contactId || "-")}</span>
+        <span class="problem-meta-chip">${escapeHtml(t("intentHandoverStepsLabel"))}: ${escapeHtml(String(item.stepsToHandover || 0))}</span>
       </div>
     </article>
   `).join("");
@@ -1548,6 +1606,12 @@ function renderIntentHandovers() {
     shown: filtered.length.toLocaleString(),
     total: handoverRows.length.toLocaleString()
   });
+  pageInfo.textContent = t("intentHandoverPageInfo", {
+    page: currentPage,
+    total: totalPages
+  });
+  if (prevBtn) prevBtn.disabled = currentPage <= 1;
+  if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
 
   wrap.querySelectorAll(".intent-handover-card").forEach((card) => {
     card.addEventListener("click", () => {
@@ -1557,15 +1621,23 @@ function renderIntentHandovers() {
 }
 
 function collectMainIntentHandoverRows(rows) {
+  const conversationStepCounts = new Map();
   const out = [];
   rows.forEach((row, idx) => {
+    const conversationId = resolveHandoverConversationId(row);
+    if (conversationId && conversationId !== "-") {
+      const nextCount = (conversationStepCounts.get(conversationId) || 0) + 1;
+      conversationStepCounts.set(conversationId, nextCount);
+    }
     if (!isMainIntentHandover(row)) return;
     const contactId = resolveHandoverContactId(row, idx);
-    const conversationId = resolveHandoverConversationId(row);
+    const stepsToHandover =
+      conversationId && conversationId !== "-" ? (conversationStepCounts.get(conversationId) || 1) : 1;
     const timestamp = String(row[INTENT_HANDOVER_CONFIG.timestampColumn] || "-");
     out.push({
       contactId,
       conversationId,
+      stepsToHandover,
       timestamp,
       rowData: row
     });
@@ -1609,6 +1681,7 @@ function openIntentHandoverModal(itemId) {
     <div class="problem-meta-row">
       <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardContact"))}: ${escapeHtml(detail.contactId)}</span>
       <span class="problem-meta-chip">${escapeHtml(t("conversationIdLabel"))}: ${escapeHtml(detail.conversationId || "-")}</span>
+      <span class="problem-meta-chip">${escapeHtml(t("intentHandoverStepsLabel"))}: ${escapeHtml(String(detail.stepsToHandover || 0))}</span>
       <span class="problem-meta-chip">${escapeHtml(t("timeLabel"))}: ${escapeHtml(String(detail.timestamp || "-"))}</span>
     </div>
   `;
