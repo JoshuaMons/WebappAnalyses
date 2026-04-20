@@ -8,9 +8,9 @@ const UPLOADED_DB_CACHE = {
 const chartStore = {};
 const SQL_JS_WASM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/";
 const DEFAULT_DB_SOURCES = [
+  "/api/live-db",
   "/data/essent.db",
   "/data/fontys_cgny.db",
-  "/api/live-db",
   "/fontys_cgny.db"
 ];
 const SQLITE_TABLE_TO_TARGET = {
@@ -2192,7 +2192,16 @@ async function ensureDefaultDatabaseLoaded() {
   for (const source of DEFAULT_DB_SOURCES) {
     try {
       const response = await fetch(source, { cache: "no-store" });
-      if (!response.ok) continue;
+      if (!response.ok) {
+        let details = "";
+        try {
+          details = String(await response.text()).trim().slice(0, 200);
+        } catch {
+          // ignore
+        }
+        lastError = `${source}: HTTP ${response.status}${details ? ` - ${details}` : ""}`;
+        continue;
+      }
       const bytes = new Uint8Array(await response.arrayBuffer());
       const sqliteError = detectInvalidSqliteBuffer(bytes);
       if (sqliteError) {
