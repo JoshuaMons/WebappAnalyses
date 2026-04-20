@@ -46,6 +46,16 @@ python scripts/export_sqlite_to_sql.py --input data/fontys_cgny.db --output "C:\
 
 You can then upload the `.sql`/`.sql.gz` dump to your managed database host/import tool.
 
+## Import SQL Dump To Local SQLite (.db)
+
+If you received a `.sql` dump (like `essent_dump.sql`) and want the dashboard to load it locally, convert it back to a SQLite `.db`:
+
+```bash
+python scripts/import_sql_dump_to_sqlite.py --input "C:\Users\Josh\Downloads\Essent\essent_dump.sql" --output data\essent.db --overwrite
+```
+
+The dashboard will try `/data/essent.db` first (then the other default sources).
+
 ## Large Dataset Notes (2M+ rows)
 
 - For very large tables, keep database indexing/partitioning on your hosted DB side.

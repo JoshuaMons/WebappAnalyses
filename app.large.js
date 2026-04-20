@@ -8,6 +8,7 @@ const UPLOADED_DB_CACHE = {
 const chartStore = {};
 const SQL_JS_WASM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/";
 const DEFAULT_DB_SOURCES = [
+  "/data/essent.db",
   "/data/fontys_cgny.db",
   "/api/live-db",
   "/fontys_cgny.db"
