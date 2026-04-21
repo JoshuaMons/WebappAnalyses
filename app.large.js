@@ -460,11 +460,11 @@ async function init() {
   hydrateApiKeyInput();
   populateRulesEditor();
   renderDatasetSelect();
-  renderAll();
   const cachedDbLoaded = await tryLoadCachedUploadedDatabase();
   if (!cachedDbLoaded) {
     // Do not auto-load a default DB. The dashboard should stay empty until the user uploads a DB.
     setStatus(t("statusNoDbLoaded"));
+    return;
   }
 }
 
