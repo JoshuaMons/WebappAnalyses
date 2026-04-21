@@ -16,7 +16,10 @@ const DEFAULT_DB_SOURCES = [
 const SQLITE_TABLE_TO_TARGET = {
   analytics: "essent cgny.csv",
   sessions: "essent data.csv",
-  genesys: "essent genesys.csv"
+  genesys: "essent genesys.csv",
+  // Essent SQL-dump -> SQLite import outputs these table names.
+  clean_data_cgny: "essent cgny.csv",
+  clean_data_sessions: "essent data.csv"
 };
 let sqlJsPromise = null;
 

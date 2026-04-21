@@ -1,1 +1,3 @@
 data/essent.db
+data/essent.db-wal
+data/essent.db-shm
