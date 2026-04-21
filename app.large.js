@@ -170,6 +170,7 @@ const I18N = {
     statusNoValidFiles: "No valid database selected.",
     statusAnalyzingFile: "Analyzing {name}...",
     statusLoadedFromDb: "Loaded {count} dataset(s) from database.",
+    statusNoDbLoaded: "No database loaded yet. Upload a .db in the Database Upload tab.",
     statusLoadingDefaultDb: "Loading default database...",
     statusDefaultDbMissing: "No default database source found.",
     statusDefaultDbError: "Default database could not be loaded: {error}",
@@ -336,6 +337,7 @@ const I18N = {
     statusNoValidFiles: "Geen geldige database geselecteerd.",
     statusAnalyzingFile: "Bezig met analyseren van {name}...",
     statusLoadedFromDb: "{count} dataset(s) geladen vanuit database.",
+    statusNoDbLoaded: "Nog geen database geladen. Upload een .db in de tab Database Upload.",
     statusLoadingDefaultDb: "Standaarddatabase wordt geladen...",
     statusDefaultDbMissing: "Geen standaarddatabasebron gevonden.",
     statusDefaultDbError: "Standaarddatabase kon niet geladen worden: {error}",
@@ -459,7 +461,11 @@ async function init() {
   populateRulesEditor();
   renderDatasetSelect();
   renderAll();
-  await ensureDefaultDatabaseLoaded();
+  const cachedDbLoaded = await tryLoadCachedUploadedDatabase();
+  if (!cachedDbLoaded) {
+    // Do not auto-load a default DB. The dashboard should stay empty until the user uploads a DB.
+    setStatus(t("statusNoDbLoaded"));
+  }
 }
 
 function bindEvents() {
