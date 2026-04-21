@@ -129,8 +129,11 @@ const I18N = {
     intentQueryGroupByLabel: "Group by",
     intentQueryAggLabel: "Agg",
     intentQueryWhereLabel: "Where",
+    intentQueryWhereValuePlaceholder: "Value...",
     intentQueryLimitLabel: "Limit",
     intentQueryRunBtn: "Run",
+    intentQuerySubtitle: "Filter and aggregate MAIN_INTENT handovers.",
+    intentQueryDistinctHint: "Deduplicate selected rows",
     intentHandoverSearchPlaceholder: "Search by ContactID or ConversationID...",
     intentHandoverSummary: "{shown} shown of {total} handover rows",
     intentHandoverStepsLabel: "Steps to handover",
@@ -315,8 +318,11 @@ const I18N = {
     intentQueryGroupByLabel: "Group by",
     intentQueryAggLabel: "Agg",
     intentQueryWhereLabel: "Waar",
+    intentQueryWhereValuePlaceholder: "Waarde...",
     intentQueryLimitLabel: "Limiet",
     intentQueryRunBtn: "Uitvoeren",
+    intentQuerySubtitle: "Filter en groepeer MAIN_INTENT-handovers.",
+    intentQueryDistinctHint: "Verwijder dubbele rijen",
     intentHandoverSearchPlaceholder: "Zoek op ContactID of ConversationID...",
     intentHandoverSummary: "{shown} zichtbaar van {total} handover-rijen",
     intentHandoverStepsLabel: "Stappen tot handover",
@@ -592,14 +598,8 @@ function bindEvents() {
     renderIntentHandovers();
   });
   on("intentQueryRunBtn", "click", () => renderIntentQueryResults());
-  on("intentQuerySelect", "change", (e) => {
-    state.intentQuery.select = Array.from(e.target.selectedOptions || []).map((o) => String(o.value));
-  });
   on("intentQueryDistinct", "change", (e) => {
     state.intentQuery.distinct = !!e.target.checked;
-  });
-  on("intentQueryGroupBy", "change", (e) => {
-    state.intentQuery.groupBy = Array.from(e.target.selectedOptions || []).map((o) => String(o.value));
   });
   on("intentQueryAgg", "change", (e) => {
     state.intentQuery.agg = String(e.target.value || "count");
@@ -615,6 +615,18 @@ function bindEvents() {
   });
   on("intentQueryLimit", "change", (e) => {
     state.intentQuery.limit = Math.max(1, Number(e.target.value || 500));
+  });
+  bindMultiSelect("intentSelect", {
+    buttonId: "intentSelectBtn",
+    panelId: "intentSelectPanel",
+    get: () => state.intentQuery.select,
+    set: (values) => { state.intentQuery.select = values; }
+  });
+  bindMultiSelect("intentGroup", {
+    buttonId: "intentGroupBtn",
+    panelId: "intentGroupPanel",
+    get: () => state.intentQuery.groupBy,
+    set: (values) => { state.intentQuery.groupBy = values; }
   });
   on("intentHandoverPrevBtn", "click", () => {
     state.intentHandoverView.page = Math.max(1, Number(state.intentHandoverView.page || 1) - 1);
@@ -669,6 +681,29 @@ function bindEvents() {
     state.comparison.right = e.target.value || "";
     saveSession();
     renderComparison();
+  });
+}
+
+function bindMultiSelect(key, { buttonId, panelId, get, set }) {
+  const btn = byId(buttonId);
+  const panel = byId(panelId);
+  if (!btn || !panel) return;
+
+  const close = () => { panel.hidden = true; };
+  btn.addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!panel.hidden && !panel.contains(e.target) && e.target !== btn) close();
+  });
+
+  panel.addEventListener("change", () => {
+    const values = Array.from(panel.querySelectorAll("input[type='checkbox'][data-ms-opt='1']"))
+      .filter((i) => i.checked)
+      .map((i) => String(i.value));
+    set(values);
+    updateIntentQuerySummary();
   });
 }
 
@@ -1814,36 +1849,50 @@ function renderIntentHandovers() {
 }
 
 function hydrateIntentQueryBuilder(dataset) {
-  const selectEl = byId("intentQuerySelect");
-  const groupEl = byId("intentQueryGroupBy");
   const whereColEl = byId("intentQueryWhereColumn");
   const distinctEl = byId("intentQueryDistinct");
   const limitEl = byId("intentQueryLimit");
-  if (!selectEl || !groupEl || !whereColEl) return;
+  const selectPanel = byId("intentSelectPanel");
+  const groupPanel = byId("intentGroupPanel");
+  if (!whereColEl || !selectPanel || !groupPanel) return;
 
   const sample = collectMainIntentHandoverRows(dataset.rows || []).slice(0, 1)[0] || {};
   const baseCols = Object.keys(sample).filter((k) => k !== "rowData");
   const cols = baseCols.length ? baseCols : ["contactId", "conversationId", "timestamp", "stepsToHandover", "sourceTable"];
 
-  const fill = (el) => {
-    el.innerHTML = cols.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  const fillPanel = (panel, selected) => {
+    const set = new Set((selected || []).map(String));
+    panel.innerHTML = cols.map((c) => {
+      const esc = escapeHtml(c);
+      const checked = set.has(c) ? "checked" : "";
+      return `<div class="ms-row"><input data-ms-opt="1" type="checkbox" id="${escapeHtml(panel.id)}-${esc}" value="${esc}" ${checked} /><label for="${escapeHtml(panel.id)}-${esc}">${esc}</label></div>`;
+    }).join("");
   };
-  fill(selectEl);
-  fill(groupEl);
+  fillPanel(selectPanel, state.intentQuery.select);
+  fillPanel(groupPanel, state.intentQuery.groupBy);
   whereColEl.innerHTML = cols.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
 
   const q = state.intentQuery;
   if (distinctEl) distinctEl.checked = !!q.distinct;
   if (limitEl) limitEl.value = String(q.limit || 500);
-
-  // Restore selections
-  const restoreMulti = (el, values) => {
-    const set = new Set((values || []).map(String));
-    Array.from(el.options).forEach((o) => { o.selected = set.has(String(o.value)); });
-  };
-  restoreMulti(selectEl, q.select);
-  restoreMulti(groupEl, q.groupBy);
   if (q.whereColumn) whereColEl.value = q.whereColumn;
+  updateIntentQuerySummary();
+}
+
+function updateIntentQuerySummary() {
+  const el = byId("intentQuerySummary");
+  const selectBtn = byId("intentSelectBtn");
+  const groupBtn = byId("intentGroupBtn");
+  if (!el || !selectBtn || !groupBtn) return;
+  const q = state.intentQuery;
+  const sel = (q.select || []).length ? q.select : [];
+  const grp = (q.groupBy || []).length ? q.groupBy : [];
+  selectBtn.textContent = sel.length ? sel.join(", ") : t("intentQuerySelectLabel");
+  groupBtn.textContent = grp.length ? grp.join(", ") : t("intentQueryGroupByLabel");
+  const where = (q.whereValue || "").trim()
+    ? `${q.whereColumn || ""} ${q.whereOp || ""} ${String(q.whereValue).trim()}`
+    : "-";
+  el.textContent = `Select: ${sel.length ? sel.join(", ") : "-"} · Distinct: ${q.distinct ? "on" : "off"} · Group by: ${grp.length ? grp.join(", ") : "-"} · Where: ${where} · Limit: ${q.limit || 500}`;
 }
 
 function collectMainIntentHandoverRows(rows) {

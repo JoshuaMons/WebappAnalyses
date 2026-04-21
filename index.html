@@ -141,34 +141,68 @@
     <section id="intentHandoversTab" class="tab-content">
       <article class="panel">
         <h3 data-i18n="intentHandoversTitle">MAIN_INTENT Handover Overview</h3>
-        <div class="controls-inline" style="margin-bottom:0.6rem;">
-          <strong class="muted" data-i18n="intentQueryTitle">Query</strong>
-          <label for="intentQuerySelect" class="muted" data-i18n="intentQuerySelectLabel">Select</label>
-          <select id="intentQuerySelect" multiple size="1"></select>
-          <label class="toggle-wrap">
-            <input id="intentQueryDistinct" type="checkbox" />
-            <span class="muted" data-i18n="intentQueryDistinctLabel">Distinct</span>
-          </label>
-          <label for="intentQueryGroupBy" class="muted" data-i18n="intentQueryGroupByLabel">Group by</label>
-          <select id="intentQueryGroupBy" multiple size="1"></select>
-          <label for="intentQueryAgg" class="muted" data-i18n="intentQueryAggLabel">Agg</label>
-          <select id="intentQueryAgg">
-            <option value="count">count</option>
-          </select>
-        </div>
-        <div class="controls-inline" style="margin-bottom:0.6rem;">
-          <label for="intentQueryWhereColumn" class="muted" data-i18n="intentQueryWhereLabel">Where</label>
-          <select id="intentQueryWhereColumn"></select>
-          <select id="intentQueryWhereOp">
-            <option value="contains">contains</option>
-            <option value="eq">=</option>
-            <option value="gt">&gt;</option>
-            <option value="lt">&lt;</option>
-          </select>
-          <input id="intentQueryWhereValue" type="text" placeholder="Value..." />
-          <label for="intentQueryLimit" class="muted" data-i18n="intentQueryLimitLabel">Limit</label>
-          <input id="intentQueryLimit" type="number" min="1" step="50" value="500" style="width:110px;" />
-          <button id="intentQueryRunBtn" class="btn primary" data-i18n="intentQueryRunBtn">Run</button>
+        <div class="query-builder" id="intentQueryBuilder">
+          <div class="query-builder__header">
+            <div>
+              <div class="query-builder__title" data-i18n="intentQueryTitle">Query</div>
+              <div class="query-builder__subtitle muted" data-i18n="intentQuerySubtitle">Filter and aggregate MAIN_INTENT handovers.</div>
+            </div>
+            <button id="intentQueryRunBtn" class="btn primary" data-i18n="intentQueryRunBtn">Run</button>
+          </div>
+
+          <div class="query-grid">
+            <div class="query-field">
+              <label class="muted" data-i18n="intentQuerySelectLabel">Select</label>
+              <div class="ms" data-ms="intentSelect">
+                <button type="button" id="intentSelectBtn" class="ms-btn"></button>
+                <div id="intentSelectPanel" class="ms-panel" hidden></div>
+              </div>
+            </div>
+
+            <div class="query-field query-field--inline">
+              <label class="muted" data-i18n="intentQueryDistinctLabel">Distinct</label>
+              <label class="toggle-wrap">
+                <input id="intentQueryDistinct" type="checkbox" />
+                <span class="muted" data-i18n="intentQueryDistinctHint">Deduplicate selected rows</span>
+              </label>
+            </div>
+
+            <div class="query-field">
+              <label class="muted" data-i18n="intentQueryGroupByLabel">Group by</label>
+              <div class="ms" data-ms="intentGroup">
+                <button type="button" id="intentGroupBtn" class="ms-btn"></button>
+                <div id="intentGroupPanel" class="ms-panel" hidden></div>
+              </div>
+            </div>
+
+            <div class="query-field">
+              <label class="muted" data-i18n="intentQueryAggLabel">Agg</label>
+              <select id="intentQueryAgg">
+                <option value="count">count</option>
+              </select>
+            </div>
+
+            <div class="query-field query-field--span2">
+              <label class="muted" data-i18n="intentQueryWhereLabel">Where</label>
+              <div class="query-where">
+                <select id="intentQueryWhereColumn"></select>
+                <select id="intentQueryWhereOp">
+                  <option value="contains">contains</option>
+                  <option value="eq">=</option>
+                  <option value="gt">&gt;</option>
+                  <option value="lt">&lt;</option>
+                </select>
+                <input id="intentQueryWhereValue" type="text" data-i18n-placeholder="intentQueryWhereValuePlaceholder" placeholder="Value..." />
+              </div>
+            </div>
+
+            <div class="query-field">
+              <label class="muted" data-i18n="intentQueryLimitLabel">Limit</label>
+              <input id="intentQueryLimit" type="number" min="1" step="50" value="500" />
+            </div>
+          </div>
+
+          <div class="query-builder__meta muted" id="intentQuerySummary"></div>
         </div>
         <div id="intentQueryResultsWrap" class="table-wrap"></div>
         <div class="controls-inline">
