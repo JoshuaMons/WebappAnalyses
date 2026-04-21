@@ -24,6 +24,20 @@ body {
   color: var(--text);
 }
 
+.landing {
+  margin: 0 1.2rem 1.2rem;
+}
+
+.landing-panel {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.landing-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;

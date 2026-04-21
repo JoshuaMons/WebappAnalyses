@@ -161,6 +161,10 @@ const I18N = {
     dbUploadHint: "Upload a SQLite database file and load it into the dashboard.",
     dbUploadInputLabel: "Database file",
     dbUploadAnalyzeBtn: "Upload & Analyze",
+    landingTitle: "Upload a database to begin",
+    landingSubtitle: "The dashboard will generate charts and tables after a SQLite .db is loaded.",
+    landingUploadBtn: "Upload & Open Dashboard",
+    landingHint: "Tip: for very large files, hosting the .db and using /api/live-db can be faster than browser upload.",
     dbUploadCurrent: "Currently loaded source: {name} ({rows} rows)",
     dbUploadNoDataset: "No uploaded database loaded yet.",
     statusSelectDataset: "Select at least one dataset file.",
@@ -328,6 +332,10 @@ const I18N = {
     dbUploadHint: "Upload een SQLite databasebestand en laad het direct in het dashboard.",
     dbUploadInputLabel: "Databasebestand",
     dbUploadAnalyzeBtn: "Uploaden & analyseren",
+    landingTitle: "Upload een database om te starten",
+    landingSubtitle: "Het dashboard genereert grafieken en tabellen nadat een SQLite .db is geladen.",
+    landingUploadBtn: "Uploaden & dashboard openen",
+    landingHint: "Tip: voor hele grote bestanden kan het hosten van de .db (via /api/live-db) sneller zijn dan uploaden in de browser.",
     dbUploadCurrent: "Huidige geladen bron: {name} ({rows} rijen)",
     dbUploadNoDataset: "Nog geen geuploade database geladen.",
     statusSelectDataset: "Selecteer minimaal één datasetbestand.",
@@ -460,12 +468,15 @@ async function init() {
   hydrateApiKeyInput();
   populateRulesEditor();
   renderDatasetSelect();
+  setDashboardLocked(true);
   const cachedDbLoaded = await tryLoadCachedUploadedDatabase();
   if (!cachedDbLoaded) {
     // Do not auto-load a default DB. The dashboard should stay empty until the user uploads a DB.
     setStatus(t("statusNoDbLoaded"));
     return;
   }
+  setDashboardLocked(false);
+  activateTab("overviewTab");
 }
 
 function bindEvents() {
@@ -475,6 +486,7 @@ function bindEvents() {
   };
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
   on("dbUploadAnalyzeBtn", "click", handleDbUpload);
+  on("landingDbUploadAnalyzeBtn", "click", () => handleDbUpload("landingDbUploadInput"));
   on("activeDatasetSelect", "change", (e) => {
     state.activeDatasetId = e.target.value || null;
     persistLastActiveTarget();
@@ -580,6 +592,16 @@ function bindEvents() {
   });
 }
 
+function setDashboardLocked(locked) {
+  const landing = byId("landingPage");
+  const tabs = byId("dashboardTabs");
+  const main = byId("dashboardMain");
+  const isLocked = !!locked;
+  if (landing) landing.hidden = !isLocked;
+  if (tabs) tabs.hidden = isLocked;
+  if (main) main.hidden = isLocked;
+}
+
 function activateTab(tabId) {
   state.activeTabId = tabId || "overviewTab";
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tabId));
@@ -605,10 +627,11 @@ function clearData() {
   renderDatasetSelect();
   renderAll();
   setStatus(t("clearDone"));
+  setDashboardLocked(true);
 }
 
-async function handleDbUpload() {
-  const input = byId("dbUploadInput");
+async function handleDbUpload(inputId = "dbUploadInput") {
+  const input = byId(inputId);
   const file = input?.files?.[0];
   if (!file) {
     setStatus(t("statusNeedDbFile"));
@@ -637,6 +660,8 @@ async function handleDbUpload() {
     rebuildUnifiedDataset();
     persistLastActiveTarget();
     saveSession();
+    setDashboardLocked(false);
+    activateTab("overviewTab");
     renderDatasetSelect();
     renderAll();
     setStatus(t("statusLoadedFromDb", { count: datasets.length }));
