@@ -144,6 +144,13 @@ const I18N = {
     handoverSearchPlaceholder: "Search handovers...",
     handoverReasonFilterLabel: "Reason",
     handoverReasonAll: "All reasons",
+    handoverDbColumnLabel: "Column",
+    handoverDbOpLabel: "Op",
+    handoverDbOpContains: "contains",
+    handoverDbOpEq: "=",
+    handoverDbOpGt: ">",
+    handoverDbOpLt: "<",
+    handoverDbValuePlaceholder: "Value...",
     handoverFilterInfo: "{shown} shown of {total} handovers",
     topProblemCategories: "Top 5 Problem Categories",
     failureSignalDistribution: "Failure Signal Distribution",
@@ -315,6 +322,13 @@ const I18N = {
     handoverSearchPlaceholder: "Zoek in overdrachten...",
     handoverReasonFilterLabel: "Reden",
     handoverReasonAll: "Alle redenen",
+    handoverDbColumnLabel: "Kolom",
+    handoverDbOpLabel: "Operator",
+    handoverDbOpContains: "bevat",
+    handoverDbOpEq: "=",
+    handoverDbOpGt: ">",
+    handoverDbOpLt: "<",
+    handoverDbValuePlaceholder: "Waarde...",
     handoverFilterInfo: "{shown} zichtbaar van {total} overdrachten",
     topProblemCategories: "Top 5 probleemcategorieën",
     failureSignalDistribution: "Verdeling foutsignalen",
@@ -429,7 +443,10 @@ const state = {
   },
   handoverView: {
     search: "",
-    reason: "all"
+    reason: "all",
+    dbColumn: "conversationId",
+    dbOp: "contains",
+    dbValue: ""
   },
   intentHandoverView: {
     search: "",
@@ -529,6 +546,18 @@ function bindEvents() {
   });
   on("handoverReasonFilter", "change", (e) => {
     state.handoverView.reason = String(e.target.value || "all");
+    renderHandovers();
+  });
+  on("handoverDbColumn", "change", (e) => {
+    state.handoverView.dbColumn = String(e.target.value || "conversationId");
+    renderHandovers();
+  });
+  on("handoverDbOp", "change", (e) => {
+    state.handoverView.dbOp = String(e.target.value || "contains");
+    renderHandovers();
+  });
+  on("handoverDbValue", "input", (e) => {
+    state.handoverView.dbValue = String(e.target.value || "");
     renderHandovers();
   });
   on("intentHandoverSearchInput", "input", (e) => {
@@ -1561,6 +1590,9 @@ function renderHandovers() {
   const dataset = getActiveDataset();
   const searchInput = byId("handoverSearchInput");
   const reasonSelect = byId("handoverReasonFilter");
+  const dbColumnSelect = byId("handoverDbColumn");
+  const dbOpSelect = byId("handoverDbOp");
+  const dbValueInput = byId("handoverDbValue");
   const filterInfo = byId("handoverFilterInfo");
   if (!dataset) {
     byId("kpiHandovers").textContent = "0";
@@ -1593,6 +1625,9 @@ function renderHandovers() {
   if (searchInput) {
     searchInput.value = state.handoverView.search || "";
   }
+  if (dbColumnSelect) dbColumnSelect.value = state.handoverView.dbColumn || "conversationId";
+  if (dbOpSelect) dbOpSelect.value = state.handoverView.dbOp || "contains";
+  if (dbValueInput) dbValueInput.value = state.handoverView.dbValue || "";
   if (reasonSelect) {
     const reasons = Array.from(new Set(rows.map((r) => String(r.reason || "").trim()).filter(Boolean))).sort((x, y) => x.localeCompare(y));
     reasonSelect.innerHTML = "";
@@ -1614,11 +1649,29 @@ function renderHandovers() {
 
   const search = String(state.handoverView.search || "").trim().toLowerCase();
   const selectedReason = String(state.handoverView.reason || "all");
+  const dbColumn = String(state.handoverView.dbColumn || "conversationId");
+  const dbOp = String(state.handoverView.dbOp || "contains");
+  const dbValueRaw = String(state.handoverView.dbValue || "");
+  const dbValue = dbValueRaw.trim().toLowerCase();
   const filteredRows = rows.filter((row) => {
     const reasonMatch = selectedReason === "all" || String(row.reason || "") === selectedReason;
     if (!reasonMatch) return false;
-    if (!search) return true;
-    return Object.values(row).join(" ").toLowerCase().includes(search);
+    const searchMatch = !search || Object.values(row).join(" ").toLowerCase().includes(search);
+    if (!searchMatch) return false;
+
+    if (!dbValue) return true;
+    const cell = row[dbColumn];
+    const cellStr = String(cell ?? "").trim();
+    const cellLower = cellStr.toLowerCase();
+
+    if (dbOp === "contains") return cellLower.includes(dbValue);
+    if (dbOp === "eq") return cellLower === dbValue;
+
+    const leftNum = Number(cell);
+    const rightNum = Number(dbValueRaw);
+    if (dbOp === "gt") return Number.isFinite(leftNum) && Number.isFinite(rightNum) && leftNum > rightNum;
+    if (dbOp === "lt") return Number.isFinite(leftNum) && Number.isFinite(rightNum) && leftNum < rightNum;
+    return true;
   });
 
   renderTable(

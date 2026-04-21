@@ -115,6 +115,23 @@
           <input id="handoverSearchInput" type="text" data-i18n-placeholder="handoverSearchPlaceholder" placeholder="Search handovers..." />
           <label for="handoverReasonFilter" data-i18n="handoverReasonFilterLabel">Reason</label>
           <select id="handoverReasonFilter"></select>
+          <label for="handoverDbColumn" data-i18n="handoverDbColumnLabel">Column</label>
+          <select id="handoverDbColumn">
+            <option value="conversationId">conversationId</option>
+            <option value="handoverTime">handoverTime</option>
+            <option value="category">category</option>
+            <option value="sourceTable">sourceTable</option>
+            <option value="reason">reason</option>
+            <option value="turns">turns</option>
+          </select>
+          <label for="handoverDbOp" data-i18n="handoverDbOpLabel">Op</label>
+          <select id="handoverDbOp">
+            <option value="contains" data-i18n="handoverDbOpContains">contains</option>
+            <option value="eq" data-i18n="handoverDbOpEq">=</option>
+            <option value="gt" data-i18n="handoverDbOpGt">&gt;</option>
+            <option value="lt" data-i18n="handoverDbOpLt">&lt;</option>
+          </select>
+          <input id="handoverDbValue" type="text" data-i18n-placeholder="handoverDbValuePlaceholder" placeholder="Value..." />
           <span id="handoverFilterInfo" class="muted"></span>
         </div>
         <div id="handoverTableWrap" class="table-wrap"></div>
