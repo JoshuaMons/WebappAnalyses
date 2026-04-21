@@ -141,6 +141,36 @@
     <section id="intentHandoversTab" class="tab-content">
       <article class="panel">
         <h3 data-i18n="intentHandoversTitle">MAIN_INTENT Handover Overview</h3>
+        <div class="controls-inline" style="margin-bottom:0.6rem;">
+          <strong class="muted" data-i18n="intentQueryTitle">Query</strong>
+          <label for="intentQuerySelect" class="muted" data-i18n="intentQuerySelectLabel">Select</label>
+          <select id="intentQuerySelect" multiple size="1"></select>
+          <label class="toggle-wrap">
+            <input id="intentQueryDistinct" type="checkbox" />
+            <span class="muted" data-i18n="intentQueryDistinctLabel">Distinct</span>
+          </label>
+          <label for="intentQueryGroupBy" class="muted" data-i18n="intentQueryGroupByLabel">Group by</label>
+          <select id="intentQueryGroupBy" multiple size="1"></select>
+          <label for="intentQueryAgg" class="muted" data-i18n="intentQueryAggLabel">Agg</label>
+          <select id="intentQueryAgg">
+            <option value="count">count</option>
+          </select>
+        </div>
+        <div class="controls-inline" style="margin-bottom:0.6rem;">
+          <label for="intentQueryWhereColumn" class="muted" data-i18n="intentQueryWhereLabel">Where</label>
+          <select id="intentQueryWhereColumn"></select>
+          <select id="intentQueryWhereOp">
+            <option value="contains">contains</option>
+            <option value="eq">=</option>
+            <option value="gt">&gt;</option>
+            <option value="lt">&lt;</option>
+          </select>
+          <input id="intentQueryWhereValue" type="text" placeholder="Value..." />
+          <label for="intentQueryLimit" class="muted" data-i18n="intentQueryLimitLabel">Limit</label>
+          <input id="intentQueryLimit" type="number" min="1" step="50" value="500" style="width:110px;" />
+          <button id="intentQueryRunBtn" class="btn primary" data-i18n="intentQueryRunBtn">Run</button>
+        </div>
+        <div id="intentQueryResultsWrap" class="table-wrap"></div>
         <div class="controls-inline">
           <input id="intentHandoverSearchInput" type="text" data-i18n-placeholder="intentHandoverSearchPlaceholder" placeholder="Search by ContactID or ConversationID..." />
           <span id="intentHandoverSummary" class="muted"></span>

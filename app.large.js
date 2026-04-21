@@ -123,6 +123,14 @@ const I18N = {
     chartHandoversByCategory: "Handovers by Issue Category",
     handoverCases: "Handover Cases",
     intentHandoversTitle: "MAIN_INTENT Handover Overview",
+    intentQueryTitle: "Query",
+    intentQuerySelectLabel: "Select",
+    intentQueryDistinctLabel: "Distinct",
+    intentQueryGroupByLabel: "Group by",
+    intentQueryAggLabel: "Agg",
+    intentQueryWhereLabel: "Where",
+    intentQueryLimitLabel: "Limit",
+    intentQueryRunBtn: "Run",
     intentHandoverSearchPlaceholder: "Search by ContactID or ConversationID...",
     intentHandoverSummary: "{shown} shown of {total} handover rows",
     intentHandoverStepsLabel: "Steps to handover",
@@ -301,6 +309,14 @@ const I18N = {
     chartHandoversByCategory: "Overdrachten per categorie",
     handoverCases: "Overdrachtsgevallen",
     intentHandoversTitle: "MAIN_INTENT Handover Overzicht",
+    intentQueryTitle: "Query",
+    intentQuerySelectLabel: "Select",
+    intentQueryDistinctLabel: "Distinct",
+    intentQueryGroupByLabel: "Group by",
+    intentQueryAggLabel: "Agg",
+    intentQueryWhereLabel: "Waar",
+    intentQueryLimitLabel: "Limiet",
+    intentQueryRunBtn: "Uitvoeren",
     intentHandoverSearchPlaceholder: "Zoek op ContactID of ConversationID...",
     intentHandoverSummary: "{shown} zichtbaar van {total} handover-rijen",
     intentHandoverStepsLabel: "Stappen tot handover",
@@ -453,6 +469,16 @@ const state = {
     page: 1,
     pageSize: 20
   },
+  intentQuery: {
+    select: ["contactId", "conversationId", "timestamp", "stepsToHandover", "sourceTable"],
+    distinct: false,
+    groupBy: [],
+    agg: "count",
+    whereColumn: "contactId",
+    whereOp: "contains",
+    whereValue: "",
+    limit: 500
+  },
   intentHandoverModalItems: [],
   problemModalItems: [],
   comparison: {
@@ -564,6 +590,31 @@ function bindEvents() {
     state.intentHandoverView.search = String(e.target.value || "").trim().toLowerCase();
     state.intentHandoverView.page = 1;
     renderIntentHandovers();
+  });
+  on("intentQueryRunBtn", "click", () => renderIntentQueryResults());
+  on("intentQuerySelect", "change", (e) => {
+    state.intentQuery.select = Array.from(e.target.selectedOptions || []).map((o) => String(o.value));
+  });
+  on("intentQueryDistinct", "change", (e) => {
+    state.intentQuery.distinct = !!e.target.checked;
+  });
+  on("intentQueryGroupBy", "change", (e) => {
+    state.intentQuery.groupBy = Array.from(e.target.selectedOptions || []).map((o) => String(o.value));
+  });
+  on("intentQueryAgg", "change", (e) => {
+    state.intentQuery.agg = String(e.target.value || "count");
+  });
+  on("intentQueryWhereColumn", "change", (e) => {
+    state.intentQuery.whereColumn = String(e.target.value || "");
+  });
+  on("intentQueryWhereOp", "change", (e) => {
+    state.intentQuery.whereOp = String(e.target.value || "contains");
+  });
+  on("intentQueryWhereValue", "input", (e) => {
+    state.intentQuery.whereValue = String(e.target.value || "");
+  });
+  on("intentQueryLimit", "change", (e) => {
+    state.intentQuery.limit = Math.max(1, Number(e.target.value || 500));
   });
   on("intentHandoverPrevBtn", "click", () => {
     state.intentHandoverView.page = Math.max(1, Number(state.intentHandoverView.page || 1) - 1);
@@ -1711,6 +1762,9 @@ function renderIntentHandovers() {
     return;
   }
 
+  hydrateIntentQueryBuilder(dataset);
+  renderIntentQueryResults();
+
   // Build a row-level list for every MAIN_INTENT handover record.
   const handoverRows = collectMainIntentHandoverRows(dataset.rows || []);
   const search = String(state.intentHandoverView.search || "").trim().toLowerCase();
@@ -1759,6 +1813,39 @@ function renderIntentHandovers() {
   });
 }
 
+function hydrateIntentQueryBuilder(dataset) {
+  const selectEl = byId("intentQuerySelect");
+  const groupEl = byId("intentQueryGroupBy");
+  const whereColEl = byId("intentQueryWhereColumn");
+  const distinctEl = byId("intentQueryDistinct");
+  const limitEl = byId("intentQueryLimit");
+  if (!selectEl || !groupEl || !whereColEl) return;
+
+  const sample = collectMainIntentHandoverRows(dataset.rows || []).slice(0, 1)[0] || {};
+  const baseCols = Object.keys(sample).filter((k) => k !== "rowData");
+  const cols = baseCols.length ? baseCols : ["contactId", "conversationId", "timestamp", "stepsToHandover", "sourceTable"];
+
+  const fill = (el) => {
+    el.innerHTML = cols.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  };
+  fill(selectEl);
+  fill(groupEl);
+  whereColEl.innerHTML = cols.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+
+  const q = state.intentQuery;
+  if (distinctEl) distinctEl.checked = !!q.distinct;
+  if (limitEl) limitEl.value = String(q.limit || 500);
+
+  // Restore selections
+  const restoreMulti = (el, values) => {
+    const set = new Set((values || []).map(String));
+    Array.from(el.options).forEach((o) => { o.selected = set.has(String(o.value)); });
+  };
+  restoreMulti(selectEl, q.select);
+  restoreMulti(groupEl, q.groupBy);
+  if (q.whereColumn) whereColEl.value = q.whereColumn;
+}
+
 function collectMainIntentHandoverRows(rows) {
   const conversationStepCounts = new Map();
   const out = [];
@@ -1772,7 +1859,7 @@ function collectMainIntentHandoverRows(rows) {
     const contactId = resolveHandoverContactId(row, idx);
     const stepsToHandover =
       conversationId && conversationId !== "-" ? (conversationStepCounts.get(conversationId) || 1) : 1;
-    const timestamp = String(row[INTENT_HANDOVER_CONFIG.timestampColumn] || "-");
+    const timestamp = String(getRowValueCI(row, INTENT_HANDOVER_CONFIG.timestampColumn) || "-");
     out.push({
       contactId,
       conversationId,
@@ -1785,18 +1872,26 @@ function collectMainIntentHandoverRows(rows) {
   return out.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
 }
 
+function getRowValueCI(row, key) {
+  if (!row || !key) return undefined;
+  if (Object.prototype.hasOwnProperty.call(row, key)) return row[key];
+  const target = String(key).toLowerCase();
+  const found = Object.keys(row).find((k) => String(k).toLowerCase() === target);
+  return found ? row[found] : undefined;
+}
+
 function isMainIntentHandover(row) {
   // Strict match: only rows where MAIN_INTENT equals "handover".
-  const value = String(row[INTENT_HANDOVER_CONFIG.mainIntentColumn] || "").trim().toLowerCase();
+  const value = String(getRowValueCI(row, INTENT_HANDOVER_CONFIG.mainIntentColumn) || "").trim().toLowerCase();
   return value === "handover";
 }
 
 function resolveHandoverContactId(row, idx) {
   // Prefer CONTACTID, fallback to session/conversation IDs to avoid dropping records.
-  const direct = String(row[INTENT_HANDOVER_CONFIG.contactIdColumn] || "").trim();
+  const direct = String(getRowValueCI(row, INTENT_HANDOVER_CONFIG.contactIdColumn) || "").trim();
   if (direct) return direct;
   const fallback = INTENT_HANDOVER_CONFIG.sessionIdColumns
-    .map((col) => String(row[col] || "").trim())
+    .map((col) => String(getRowValueCI(row, col) || "").trim())
     .find(Boolean);
   return fallback || `missing-${idx}`;
 }
@@ -1804,7 +1899,7 @@ function resolveHandoverContactId(row, idx) {
 function resolveHandoverConversationId(row) {
   // Conversation identity follows configured fallback order.
   const id = INTENT_HANDOVER_CONFIG.sessionIdColumns
-    .map((col) => String(row[col] || "").trim())
+    .map((col) => String(getRowValueCI(row, col) || "").trim())
     .find(Boolean);
   return id || "-";
 }
@@ -1888,17 +1983,92 @@ function collectRelatedRowsForIntentDetail(detail) {
   const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
   const contactId = String(detail?.contactId || "").trim().toLowerCase();
   if (!contactId) return [];
-  return rows.filter((row) => String(row?.[INTENT_HANDOVER_CONFIG.contactIdColumn] || "").trim().toLowerCase() === contactId);
+  return rows.filter((row) => String(getRowValueCI(row, INTENT_HANDOVER_CONFIG.contactIdColumn) || "").trim().toLowerCase() === contactId);
 }
 
 function collectFieldValues(rows, fieldName) {
   const values = [];
   rows.forEach((row) => {
-    const value = String(row?.[fieldName] ?? "").trim();
+    const value = String(getRowValueCI(row, fieldName) ?? "").trim();
     if (!value) return;
     values.push(value);
   });
   return values;
+}
+
+function renderIntentQueryResults() {
+  const dataset = getActiveDataset();
+  const wrap = byId("intentQueryResultsWrap");
+  if (!wrap) return;
+  if (!dataset) {
+    wrap.innerHTML = `<p class="muted">${escapeHtml(t("noDataAvailable"))}</p>`;
+    return;
+  }
+  const base = collectMainIntentHandoverRows(dataset.rows || []);
+  const q = state.intentQuery || {};
+  const whereCol = String(q.whereColumn || "");
+  const whereOp = String(q.whereOp || "contains");
+  const whereValRaw = String(q.whereValue || "");
+  const whereVal = whereValRaw.trim().toLowerCase();
+  const filtered = !whereCol || !whereVal
+    ? base
+    : base.filter((r) => {
+        const cell = r[whereCol];
+        const s = String(cell ?? "").trim();
+        const sl = s.toLowerCase();
+        if (whereOp === "contains") return sl.includes(whereVal);
+        if (whereOp === "eq") return sl === whereVal;
+        const ln = Number(cell);
+        const rn = Number(whereValRaw);
+        if (whereOp === "gt") return Number.isFinite(ln) && Number.isFinite(rn) && ln > rn;
+        if (whereOp === "lt") return Number.isFinite(ln) && Number.isFinite(rn) && ln < rn;
+        return true;
+      });
+
+  const select = Array.isArray(q.select) && q.select.length ? q.select : ["contactId", "conversationId"];
+  const groupBy = Array.isArray(q.groupBy) ? q.groupBy.filter(Boolean) : [];
+  const distinct = !!q.distinct;
+  const limit = Math.max(1, Number(q.limit || 500));
+
+  let outRows = [];
+  if (groupBy.length) {
+    const map = new Map();
+    filtered.forEach((r) => {
+      const key = groupBy.map((k) => String(r[k] ?? "")).join("||");
+      const agg = map.get(key) || { __count: 0, __rows: [] };
+      agg.__count += 1;
+      agg.__rows.push(r);
+      map.set(key, agg);
+    });
+    outRows = Array.from(map.entries()).map(([key, agg]) => {
+      const first = agg.__rows[0] || {};
+      const row = {};
+      groupBy.forEach((k) => { row[k] = first[k]; });
+      row.count = agg.__count;
+      row.distinct_contacts = new Set(agg.__rows.map((x) => String(x.contactId || ""))).size;
+      return row;
+    });
+    outRows.sort((a, b) => Number(b.count) - Number(a.count));
+  } else {
+    outRows = filtered.map((r) => {
+      const row = {};
+      select.forEach((k) => { row[k] = r[k]; });
+      return row;
+    });
+    if (distinct) {
+      const seen = new Set();
+      outRows = outRows.filter((r) => {
+        const key = JSON.stringify(r);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+  }
+
+  const limited = outRows.slice(0, limit);
+  const cols = limited.length ? Object.keys(limited[0]) : (groupBy.length ? [...groupBy, "count", "distinct_contacts"] : select);
+  renderTable(wrap, limited, cols);
 }
 
 function closeIntentHandoverModal() {
