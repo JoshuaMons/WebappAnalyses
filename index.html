@@ -134,7 +134,8 @@
             <option value="gt" data-i18n="handoverDbOpGt">&gt;</option>
             <option value="lt" data-i18n="handoverDbOpLt">&lt;</option>
           </select>
-          <input id="handoverDbValue" type="text" data-i18n-placeholder="handoverDbValuePlaceholder" placeholder="Value..." />
+          <input id="handoverDbValue" type="text" list="handoverDbValueOptions" data-i18n-placeholder="handoverDbValuePlaceholder" placeholder="Value..." />
+          <datalist id="handoverDbValueOptions"></datalist>
           <span id="handoverFilterInfo" class="muted"></span>
         </div>
         <div id="handoverTableWrap" class="table-wrap"></div>
@@ -195,7 +196,8 @@
                   <option value="gt">&gt;</option>
                   <option value="lt">&lt;</option>
                 </select>
-                <input id="intentQueryWhereValue" type="text" data-i18n-placeholder="intentQueryWhereValuePlaceholder" placeholder="Value..." />
+                <input id="intentQueryWhereValue" type="text" list="intentQueryWhereValueOptions" data-i18n-placeholder="intentQueryWhereValuePlaceholder" placeholder="Value..." />
+                <datalist id="intentQueryWhereValueOptions"></datalist>
               </div>
             </div>
 

@@ -582,6 +582,7 @@ function bindEvents() {
   });
   on("handoverDbColumn", "change", (e) => {
     state.handoverView.dbColumn = String(e.target.value || "conversationId");
+    updateHandoverValueSuggestions();
     renderHandovers();
   });
   on("handoverDbOp", "change", (e) => {
@@ -606,6 +607,7 @@ function bindEvents() {
   });
   on("intentQueryWhereColumn", "change", (e) => {
     state.intentQuery.whereColumn = String(e.target.value || "");
+    updateIntentWhereValueSuggestions();
   });
   on("intentQueryWhereOp", "change", (e) => {
     state.intentQuery.whereOp = String(e.target.value || "contains");
@@ -616,6 +618,8 @@ function bindEvents() {
   on("intentQueryLimit", "change", (e) => {
     state.intentQuery.limit = Math.max(1, Number(e.target.value || 500));
   });
+  on("intentQueryWhereValue", "focus", () => updateIntentWhereValueSuggestions());
+  on("handoverDbValue", "focus", () => updateHandoverValueSuggestions());
   bindMultiSelect("intentSelect", {
     buttonId: "intentSelectBtn",
     panelId: "intentSelectPanel",
@@ -705,6 +709,48 @@ function bindMultiSelect(key, { buttonId, panelId, get, set }) {
     set(values);
     updateIntentQuerySummary();
   });
+}
+
+function setDatalistOptions(datalistId, values) {
+  const el = byId(datalistId);
+  if (!el) return;
+  const unique = Array.from(new Set((values || []).map((v) => String(v ?? "").trim()).filter(Boolean)));
+  el.innerHTML = unique.map((v) => `<option value="${escapeHtml(v)}"></option>`).join("");
+}
+
+function collectDistinctValues(rows, column, limit = 200) {
+  const col = String(column || "");
+  if (!col) return [];
+  const out = [];
+  const seen = new Set();
+  for (let i = 0; i < rows.length; i += 1) {
+    const value = rows[i]?.[col];
+    const s = String(value ?? "").trim();
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function updateHandoverValueSuggestions() {
+  const dataset = getActiveDataset();
+  if (!dataset) return;
+  const a = dataset.analysis;
+  const rows = (a?.handoverRows || []).map((r) => ({ ...r, category: mapIssueLabel(r.category, a) }));
+  const col = String(state.handoverView.dbColumn || "");
+  setDatalistOptions("handoverDbValueOptions", collectDistinctValues(rows, col, 200));
+}
+
+function updateIntentWhereValueSuggestions() {
+  const dataset = getActiveDataset();
+  if (!dataset) return;
+  const base = collectMainIntentHandoverRows(dataset.rows || []);
+  const col = String(state.intentQuery.whereColumn || "");
+  setDatalistOptions("intentQueryWhereValueOptions", collectDistinctValues(base, col, 200));
 }
 
 function setDashboardLocked(locked) {
@@ -1714,6 +1760,7 @@ function renderHandovers() {
   if (dbColumnSelect) dbColumnSelect.value = state.handoverView.dbColumn || "conversationId";
   if (dbOpSelect) dbOpSelect.value = state.handoverView.dbOp || "contains";
   if (dbValueInput) dbValueInput.value = state.handoverView.dbValue || "";
+  updateHandoverValueSuggestions();
   if (reasonSelect) {
     const reasons = Array.from(new Set(rows.map((r) => String(r.reason || "").trim()).filter(Boolean))).sort((x, y) => x.localeCompare(y));
     reasonSelect.innerHTML = "";
@@ -1877,6 +1924,7 @@ function hydrateIntentQueryBuilder(dataset) {
   if (limitEl) limitEl.value = String(q.limit || 500);
   if (q.whereColumn) whereColEl.value = q.whereColumn;
   updateIntentQuerySummary();
+  updateIntentWhereValueSuggestions();
 }
 
 function updateIntentQuerySummary() {
