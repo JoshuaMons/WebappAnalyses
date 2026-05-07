@@ -13,15 +13,15 @@ module.exports = async function handler(req, res) {
     }
 
     const prompt = `Return strict JSON with keys: insights (array), issue_labels (object). Input: ${JSON.stringify(payload || [])}`;
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${effectiveApiKey}`
       },
       body: JSON.stringify({
-        model: model || "gpt-5.2",
-        input: [
+        model: model || "gpt-4o",
+        messages: [
           { role: "system", content: "You are a support analytics assistant. Output valid JSON only." },
           { role: "user", content: prompt }
         ]

@@ -31,6 +31,9 @@ const MAX_HANDOVER_ROWS = 4000;
 const LARGE_ROW_THRESHOLD = 250000;
 const MAX_SESSION_ROWS = 3000;
 const MAX_SESSION_DATASETS = 5;
+const CSV_CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB per streaming chunk
+const PROGRESS_UPDATE_MS = 400;         // min ms between progress status updates
+const DEBOUNCE_MS = 200;                // ms debounce for search/filter inputs
 const LEGACY_STORAGE_KEYS = ["supportAnalyticsSessionV1"];
 const LANGUAGE_KEY = "supportAnalyticsLanguageV1";
 const API_KEY_SESSION_KEY = "supportAnalyticsOpenAiKeySessionV1";
@@ -80,7 +83,7 @@ const I18N = {
     targetFilesHint: "Only these 3 files are analyzed in Essent mode.",
     uploadLabel: "Upload database (.db)",
     analyzeUploadBtn: "Analyze Upload",
-    aiToggle: "Enable AI-powered analysis (OpenAI GPT-5.2)",
+    aiToggle: "Enable AI-powered analysis (OpenAI GPT-4o)",
     aiControlTitle: "AI Controls",
     openAiKeyPlaceholder: "OpenAI API Key (optional if AI is off)",
     runAiBtn: "Run AI Enrichment",
@@ -205,7 +208,7 @@ const I18N = {
     aiEnableFirst: "Enable AI analysis first.",
     aiNeedKey: "Enter an OpenAI API key to run AI enrichment.",
     aiKeyCleared: "API key removed for this session.",
-    aiRunning: "Running GPT-5.2 enrichment...",
+    aiRunning: "Running GPT-4o enrichment...",
     aiDone: "AI enrichment complete.",
     aiFailed: "AI enrichment failed: {error}",
     aiNetworkHelp: "Network error. If deployed on Vercel, set OPENAI_API_KEY and use the same-origin /api/ai-enrich endpoint.",
@@ -269,7 +272,7 @@ const I18N = {
     targetFilesHint: "Alleen deze 3 bestanden worden geanalyseerd in Essent-modus.",
     uploadLabel: "Upload database (.db)",
     analyzeUploadBtn: "Upload analyseren",
-    aiToggle: "AI-analyse inschakelen (OpenAI GPT-5.2)",
+    aiToggle: "AI-analyse inschakelen (OpenAI GPT-4o)",
     aiControlTitle: "AI Bediening",
     openAiKeyPlaceholder: "OpenAI API sleutel (optioneel als AI uit staat)",
     runAiBtn: "AI verrijking starten",
@@ -394,7 +397,7 @@ const I18N = {
     aiEnableFirst: "Schakel eerst AI-analyse in.",
     aiNeedKey: "Voer een OpenAI API sleutel in om AI verrijking te draaien.",
     aiKeyCleared: "API sleutel verwijderd voor deze sessie.",
-    aiRunning: "GPT-5.2 verrijking wordt uitgevoerd...",
+    aiRunning: "GPT-4o verrijking wordt uitgevoerd...",
     aiDone: "AI verrijking voltooid.",
     aiFailed: "AI verrijking mislukt: {error}",
     aiNetworkHelp: "Netwerkfout. Bij Vercel: zet OPENAI_API_KEY en gebruik dezelfde-origin /api/ai-enrich endpoint.",
@@ -468,7 +471,9 @@ const state = {
     reason: "all",
     dbColumn: "conversationId",
     dbOp: "contains",
-    dbValue: ""
+    dbValue: "",
+    page: 1,
+    pageSize: 100
   },
   intentHandoverView: {
     search: "",
@@ -501,10 +506,13 @@ const state = {
   }
 };
 
+window.addEventListener("unhandledrejection", (event) => {
+  handleError(event.reason, "unhandled");
+  event.preventDefault();
+});
+
 document.addEventListener("DOMContentLoaded", () => {
-  init().catch((error) => {
-    setStatus(t("statusUploadFailed", { error: error.message }));
-  });
+  init().catch((error) => handleError(error, "init"));
 });
 
 async function init() {
@@ -568,36 +576,41 @@ function bindEvents() {
   });
   on("saveRulesBtn", "click", saveRulesFromEditor);
   on("resetRulesBtn", "click", resetRulesToDefault);
-  on("problemSearchInput", "input", (e) => {
+  on("problemSearchInput", "input", debounce((e) => {
     state.problemView.search = String(e.target.value || "").trim().toLowerCase();
     renderProblems();
-  });
-  on("handoverSearchInput", "input", (e) => {
+  }, DEBOUNCE_MS));
+  on("handoverSearchInput", "input", debounce((e) => {
     state.handoverView.search = String(e.target.value || "").trim().toLowerCase();
+    state.handoverView.page = 1;
     renderHandovers();
-  });
+  }, DEBOUNCE_MS));
   on("handoverReasonFilter", "change", (e) => {
     state.handoverView.reason = String(e.target.value || "all");
+    state.handoverView.page = 1;
     renderHandovers();
   });
   on("handoverDbColumn", "change", (e) => {
     state.handoverView.dbColumn = String(e.target.value || "conversationId");
+    state.handoverView.page = 1;
     updateHandoverValueSuggestions();
     renderHandovers();
   });
   on("handoverDbOp", "change", (e) => {
     state.handoverView.dbOp = String(e.target.value || "contains");
+    state.handoverView.page = 1;
     renderHandovers();
   });
-  on("handoverDbValue", "input", (e) => {
+  on("handoverDbValue", "input", debounce((e) => {
     state.handoverView.dbValue = String(e.target.value || "");
+    state.handoverView.page = 1;
     renderHandovers();
-  });
-  on("intentHandoverSearchInput", "input", (e) => {
+  }, DEBOUNCE_MS));
+  on("intentHandoverSearchInput", "input", debounce((e) => {
     state.intentHandoverView.search = String(e.target.value || "").trim().toLowerCase();
     state.intentHandoverView.page = 1;
     renderIntentHandovers();
-  });
+  }, DEBOUNCE_MS));
   on("intentQueryRunBtn", "click", () => renderIntentQueryResults());
   on("intentQueryDistinct", "change", (e) => {
     state.intentQuery.distinct = !!e.target.checked;
@@ -802,6 +815,11 @@ async function handleDbUpload(inputId = "dbUploadInput") {
     setStatus(t("statusNeedDbFile"));
     return;
   }
+  const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
+  if (file.size > MAX_UPLOAD_BYTES) {
+    setStatus(t("statusUploadFailed", { error: "File exceeds the 500 MB upload limit" }));
+    return;
+  }
 
   setStatus(t("statusAnalyzingFile", { name: file.name }));
   try {
@@ -828,7 +846,7 @@ async function handleDbUpload(inputId = "dbUploadInput") {
     setStatus(t("statusLoadedFromDb", { count: datasets.length }));
     renderDbUploadTab();
   } catch (error) {
-    setStatus(t("statusUploadFailed", { error: error?.message || "Unknown error" }));
+    handleError(error, "upload");
   }
 }
 
@@ -840,12 +858,12 @@ function parseAndAnalyzeCsvStream(file) {
       header: true,
       skipEmptyLines: true,
       worker: true,
-      chunkSize: 2 * 1024 * 1024,
+      chunkSize: CSV_CHUNK_SIZE,
       chunk(results) {
         const rows = normalizeRows(results.data);
         engine.ingestRows(rows);
         const now = Date.now();
-        if (now - lastProgressTs > 400) {
+        if (now - lastProgressTs > PROGRESS_UPDATE_MS) {
           const pct = Math.min(100, Math.round((results.meta.cursor / file.size) * 100));
           setStatus(t("statusProgress", { name: file.name, pct, rows: engine.rowCount.toLocaleString() }));
           lastProgressTs = now;
@@ -1397,7 +1415,7 @@ async function requestAiEnrichment(payload, apiKey) {
   const proxyResponse = await fetch("/api/ai-enrich", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload, model: "gpt-5.2", apiKey })
+    body: JSON.stringify({ payload, model: "gpt-4o", apiKey })
   }).catch(() => null);
 
   if (proxyResponse && proxyResponse.ok) {
@@ -1409,12 +1427,12 @@ async function requestAiEnrichment(payload, apiKey) {
     throw new Error(`AI proxy error ${proxyResponse.status}${proxyText ? `: ${proxyText.slice(0, 160)}` : ""}`);
   }
 
-  const directResponse = await fetch("https://api.openai.com/v1/responses", {
+  const directResponse = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: "gpt-5.2",
-      input: [
+      model: "gpt-4o",
+      messages: [
         { role: "system", content: "You are a support analytics assistant. Output valid JSON only." },
         { role: "user", content: `Return strict JSON with keys: insights (array), issue_labels (object). Input: ${JSON.stringify(payload)}` }
       ]
@@ -1807,15 +1825,40 @@ function renderHandovers() {
     return true;
   });
 
+  const pageSize = state.handoverView.pageSize;
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  state.handoverView.page = Math.min(Math.max(1, state.handoverView.page), totalPages);
+  const page = state.handoverView.page;
+  const pageStart = (page - 1) * pageSize;
+  const pageRows = filteredRows.slice(pageStart, pageStart + pageSize);
+
+  const tableWrap = byId("handoverTableWrap");
   renderTable(
-    byId("handoverTableWrap"),
-    filteredRows,
+    tableWrap,
+    pageRows,
     ["conversationId", "handoverTime", "category", "sourceTable", "reason", "turns"],
     null,
-    {
-      sourceTable: t("tableSourceTable")
-    }
+    { sourceTable: t("tableSourceTable") }
   );
+
+  let pagerEl = byId("handoverPager");
+  if (!pagerEl) {
+    pagerEl = document.createElement("div");
+    pagerEl.id = "handoverPager";
+    pagerEl.className = "controls-inline";
+    tableWrap.parentNode.insertBefore(pagerEl, tableWrap.nextSibling);
+  }
+  const prevDisabled = page <= 1 ? "disabled" : "";
+  const nextDisabled = page >= totalPages ? "disabled" : "";
+  pagerEl.innerHTML = `
+    <button class="btn" id="handoverPrevBtn" ${prevDisabled}>${escapeHtml(t("prevBtn"))}</button>
+    <span class="muted">${escapeHtml(t("intentHandoverPageInfo", { page, total: totalPages }))}</span>
+    <button class="btn" id="handoverNextBtn" ${nextDisabled}>${escapeHtml(t("nextBtn"))}</button>`;
+  const prevBtn = byId("handoverPrevBtn");
+  const nextBtn = byId("handoverNextBtn");
+  if (prevBtn) prevBtn.addEventListener("click", () => { state.handoverView.page--; renderHandovers(); });
+  if (nextBtn) nextBtn.addEventListener("click", () => { state.handoverView.page++; renderHandovers(); });
+
   if (filterInfo) {
     filterInfo.textContent = t("handoverFilterInfo", {
       shown: filteredRows.length.toLocaleString(),
@@ -2264,7 +2307,7 @@ function renderProblems() {
 
     return `
       <div class="problem-card">
-        <h4>${escapeHtml(mapIssueLabel(p.problem, a))}<span class="pill">${p.frequency}</span></h4>
+        <h4>${escapeHtml(mapIssueLabel(p.problem, a))}<span class="pill">${escapeHtml(String(p.frequency))}</span></h4>
         <div class="problem-subtitle">${escapeHtml(t("exampleConversation"))}</div>
         <div class="problem-example-grid">${examples || `<div class="problem-example-card">${escapeHtml(t("noExampleText"))}</div>`}</div>
       </div>
@@ -2438,6 +2481,12 @@ function renderComparison() {
 }
 
 function drawChart(canvasId, type, data) {
+  const existing = chartStore[canvasId];
+  if (existing && existing.config.type === type) {
+    existing.data = data;
+    existing.update("none");
+    return;
+  }
   destroyChart(canvasId);
   const ctx = byId(canvasId);
   if (!ctx) return;
@@ -2493,9 +2542,10 @@ function loadSession() {
       state.activeDatasetId = state.datasets[state.datasets.length - 1].id;
     }
     rebuildUnifiedDataset();
-  } catch {
+  } catch (error) {
     state.datasets = [];
     state.unifiedDataset = null;
+    console.warn("Session restore failed, starting fresh:", error?.message || error);
   }
 }
 
@@ -2563,7 +2613,10 @@ async function ensureDefaultDatabaseLoaded() {
         continue;
       }
       const datasets = await analyzeDbBufferToDatasets(bytes, source);
-      if (!datasets.length) continue;
+      if (!datasets.length) {
+        lastError = `${source}: database loaded but contained no usable tables`;
+        continue;
+      }
       state.datasets = datasets;
       rebuildUnifiedDataset();
       persistLastActiveTarget();
@@ -2802,6 +2855,12 @@ function cleanupLegacyStorage() {
       // Ignore storage availability issues.
     }
   });
+  // Remove any API key that was previously persisted in localStorage.
+  try {
+    localStorage.removeItem(API_KEY_SESSION_KEY);
+  } catch {
+    // Ignore storage availability issues.
+  }
 }
 
 function cloneDefaultRules() {
@@ -3000,6 +3059,20 @@ async function copyTextToClipboard(text) {
   }
 }
 
+function handleError(error, context = "") {
+  const msg = error?.message || String(error || "Unknown error");
+  const prefix = context ? `${context}: ` : "";
+  setStatus(t("statusUploadFailed", { error: `${prefix}${msg}` }));
+}
+
+function debounce(fn, ms) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), ms);
+  };
+}
+
 function detectInvalidSqliteBuffer(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < 16) {
     return "Received empty or invalid database payload";
@@ -3027,6 +3100,7 @@ function safeSetValue(id, value) {
 }
 
 function extractResponseText(data) {
+  if (data?.choices?.[0]?.message?.content) return data.choices[0].message.content;
   if (typeof data.output_text === "string") return data.output_text;
   if (Array.isArray(data.output)) return data.output.flatMap((item) => item.content || []).map((c) => c.text || "").join("\n");
   return "";
@@ -3200,14 +3274,7 @@ function getEffectiveApiKey() {
 
 function loadApiKeyFromSession() {
   try {
-    const fromLocal = localStorage.getItem(API_KEY_SESSION_KEY) || "";
-    if (fromLocal) return fromLocal;
-    const fromSession = sessionStorage.getItem(API_KEY_SESSION_KEY) || "";
-    if (fromSession) {
-      localStorage.setItem(API_KEY_SESSION_KEY, fromSession);
-      return fromSession;
-    }
-    return "";
+    return sessionStorage.getItem(API_KEY_SESSION_KEY) || "";
   } catch {
     return "";
   }
@@ -3217,11 +3284,9 @@ function persistApiKeyForSession(value) {
   const clean = String(value || "").trim();
   try {
     if (!clean) {
-      localStorage.removeItem(API_KEY_SESSION_KEY);
       sessionStorage.removeItem(API_KEY_SESSION_KEY);
       return;
     }
-    localStorage.setItem(API_KEY_SESSION_KEY, clean);
     sessionStorage.setItem(API_KEY_SESSION_KEY, clean);
   } catch {
     // Ignore storage issues.
@@ -3230,7 +3295,6 @@ function persistApiKeyForSession(value) {
 
 function clearApiKeyForSession() {
   try {
-    localStorage.removeItem(API_KEY_SESSION_KEY);
     sessionStorage.removeItem(API_KEY_SESSION_KEY);
   } catch {
     // Ignore storage issues.

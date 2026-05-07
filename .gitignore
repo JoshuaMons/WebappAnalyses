@@ -1,3 +1,15 @@
-data/essent.db
-data/essent.db-wal
-data/essent.db-shm
+# SQLite database files — not committed.
+# On Vercel, set SUPPORT_ANALYTICS_DB_URL to point to a hosted .db file.
+# For local development, place your .db file in /data/ manually.
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# OS / editor
+.DS_Store
+Thumbs.db

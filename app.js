@@ -1,3 +1,7 @@
+// LEGACY FILE — not loaded by index.html.
+// This is an older, simpler version of the dashboard (CSV/Excel/JSON upload only,
+// no SQLite support). Kept for reference. All active development happens in app.large.js.
+
 const STORAGE_KEY = "supportAnalyticsSessionV1";
 const chartStore = {};
 
@@ -429,7 +433,7 @@ async function runAiEnrichment() {
     return;
   }
 
-  setStatus("Running GPT-5.2 enrichment...");
+  setStatus("Running GPT-4o enrichment...");
   try {
     const payload = dataset.analysis.topProblems.map((p) => ({
       issue: p.problem,
@@ -443,15 +447,15 @@ async function runAiEnrichment() {
       JSON.stringify(payload)
     ].join("\n");
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: "gpt-5.2",
-        input: [
+        model: "gpt-4o",
+        messages: [
           {
             role: "system",
             content: "You are a support analytics assistant. Output must be valid JSON."
@@ -480,9 +484,8 @@ async function runAiEnrichment() {
 }
 
 function extractResponseText(data) {
-  if (typeof data.output_text === "string") {
-    return data.output_text;
-  }
+  if (data?.choices?.[0]?.message?.content) return data.choices[0].message.content;
+  if (typeof data.output_text === "string") return data.output_text;
   if (Array.isArray(data.output)) {
     return data.output
       .flatMap((item) => item.content || [])

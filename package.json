@@ -1,0 +1,17 @@
+{
+  "name": "support-analytics-dashboard",
+  "version": "1.0.0",
+  "description": "Support conversation analytics dashboard",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "npx esbuild app.large.js --minify --allow-overwrite --outfile=app.large.js && npx esbuild style.css --minify --allow-overwrite --outfile=style.css",
+    "build:js": "npx esbuild app.large.js --minify --allow-overwrite --outfile=app.large.js",
+    "dev": "npx serve ."
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

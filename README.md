@@ -10,7 +10,7 @@ Interactive dark-theme dashboard for support conversation analytics.
 
 - Auto-load support database from `/api/live-db` (online source) with fallback to local `/data/fontys_cgny.db`
 - SQLite `.db` analysis using `sql.js`
-- Persistent browser restore via `localStorage` + `sessionStorage`
+- Persistent browser restore via `sessionStorage`
 - Multi-tab analytics UI:
   - Overview
   - Data Explorer
@@ -21,7 +21,7 @@ Interactive dark-theme dashboard for support conversation analytics.
   - Dataset Comparison
 - Handover detection via keyword/escalation/failure-loop signals
 - Problem clustering with top issues + example conversations
-- Optional AI enrichment with OpenAI `gpt-5.2` (can be toggled off for sensitive data)
+- Optional AI enrichment with OpenAI `gpt-4o` (can be toggled off for sensitive data)
 - Working clear-data flow with confirmation warning
 
 ## Online Database Setup (Vercel)
@@ -75,19 +75,17 @@ or
 python -m http.server 8080
 ```
 
-## Deploy on Vercel hoii
-
+## Deploy on Vercel
 
 1. Import this folder as a Vercel project.
 2. Framework preset: `Other`.
 3. Build command: none.
 4. Output directory: `.`
+5. Set environment variables (see `.env.example`):
+   - `SUPPORT_ANALYTICS_DB_URL` — **required**; Vercel does not pull Git LFS files so the database must be hosted externally.
+   - `OPENAI_API_KEY` — optional; enables the server-side AI proxy (`/api/ai-enrich`) to avoid browser CORS issues.
 
-`vercel.json` is included for static hosting defaults.
-
-### AI Proxy (recommended)
-
-Set `OPENAI_API_KEY` in Vercel project environment variables to use the server-side AI proxy endpoint (`/api/ai-enrich`) and avoid browser-side network/CORS issues.
+`vercel.json` is included with security headers and a custom 404 page.
 
 
 `render.yaml` is included for one-click infra config.

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>404 — Page Not Found</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .error-panel {
+      text-align: center;
+      max-width: 480px;
+      padding: 2.5rem;
+    }
+    .error-code {
+      font-size: 5rem;
+      font-weight: 700;
+      line-height: 1;
+      opacity: 0.2;
+      margin: 0 0 1rem;
+    }
+    .error-panel h1 {
+      margin: 0 0 0.5rem;
+    }
+    .error-panel p {
+      margin: 0 0 2rem;
+    }
+  </style>
+</head>
+<body>
+  <article class="panel error-panel">
+    <p class="error-code">404</p>
+    <h1>Page not found</h1>
+    <p class="muted">The page you're looking for doesn't exist or has been moved.</p>
+    <a href="/" class="btn primary">Go to dashboard</a>
+  </article>
+</body>
+</html>

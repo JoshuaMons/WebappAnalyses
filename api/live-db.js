@@ -12,6 +12,18 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(remoteDbUrl);
+  } catch {
+    res.status(500).json({ error: "SUPPORT_ANALYTICS_DB_URL is not a valid URL" });
+    return;
+  }
+  if (parsedUrl.protocol !== "https:") {
+    res.status(500).json({ error: "SUPPORT_ANALYTICS_DB_URL must use HTTPS" });
+    return;
+  }
+
   try {
     const upstream = await fetch(remoteDbUrl, { cache: "no-store" });
     if (!upstream.ok) {
