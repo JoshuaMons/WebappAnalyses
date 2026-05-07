@@ -10,8 +10,5 @@
     "minify": "npx esbuild app.large.js --minify --allow-overwrite --outfile=app.large.js && npx esbuild style.css --minify --allow-overwrite --outfile=style.css",
     "minify:js": "npx esbuild app.large.js --minify --allow-overwrite --outfile=app.large.js",
     "dev": "npx serve ."
-  },
-  "devDependencies": {
-    "esbuild": "^0.25.0"
   }
 }
