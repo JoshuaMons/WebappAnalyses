@@ -195,6 +195,7 @@ const I18N = {
     statusNoValidFiles: "No valid database selected.",
     statusAnalyzingFile: "Analyzing {name}...",
     statusReadingFile: "Reading {name}: {pct}%",
+    statusOpeningDb: "Opening database {name}…",
     statusAnalyzingRows: "Analyzing {name}: {rows} rows processed…",
     statusLoadedFromDb: "Loaded {count} dataset(s) from database.",
     statusNoDbLoaded: "No database loaded yet. Upload a .db in the Database Upload tab.",
@@ -386,6 +387,7 @@ const I18N = {
     statusNoValidFiles: "Geen geldige database geselecteerd.",
     statusAnalyzingFile: "Bezig met analyseren van {name}...",
     statusReadingFile: "{name} lezen: {pct}%",
+    statusOpeningDb: "Database {name} openen…",
     statusAnalyzingRows: "{name} analyseren: {rows} rijen verwerkt…",
     statusLoadedFromDb: "{count} dataset(s) geladen vanuit database.",
     statusNoDbLoaded: "Nog geen database geladen. Upload een .db in de tab Database Upload.",
@@ -2683,7 +2685,10 @@ async function tryLoadCachedUploadedDatabase() {
 }
 
 async function analyzeDbBufferToDatasets(bytes, sourceName) {
+  setStatus(t("statusOpeningDb", { name: sourceName }));
+  await new Promise((resolve) => setTimeout(resolve, 0)); // yield so status renders
   const SQL = await loadSqlJs();
+  await new Promise((resolve) => setTimeout(resolve, 0)); // yield before heavy sync op
   const db = new SQL.Database(bytes);
   try {
     const tableRows = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
