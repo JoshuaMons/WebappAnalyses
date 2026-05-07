@@ -7,8 +7,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "npx esbuild app.large.js --minify --allow-overwrite --outfile=app.large.js && npx esbuild style.css --minify --allow-overwrite --outfile=style.css",
-    "build:js": "npx esbuild app.large.js --minify --allow-overwrite --outfile=app.large.js",
+    "minify": "npx esbuild app.large.js --minify --allow-overwrite --outfile=app.large.js && npx esbuild style.css --minify --allow-overwrite --outfile=style.css",
+    "minify:js": "npx esbuild app.large.js --minify --allow-overwrite --outfile=app.large.js",
     "dev": "npx serve ."
   },
   "devDependencies": {

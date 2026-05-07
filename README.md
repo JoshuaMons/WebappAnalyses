@@ -75,11 +75,18 @@ or
 python -m http.server 8080
 ```
 
+### Optional: minify JS/CSS for local production build
+
+```bash
+npm install
+npm run minify
+```
+
 ## Deploy on Vercel
 
 1. Import this folder as a Vercel project.
 2. Framework preset: `Other`.
-3. Build command: none.
+3. Build command: **none** (leave empty).
 4. Output directory: `.`
 5. Set environment variables (see `.env.example`):
    - `SUPPORT_ANALYTICS_DB_URL` — **required**; Vercel does not pull Git LFS files so the database must be hosted externally.
