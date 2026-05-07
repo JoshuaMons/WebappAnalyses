@@ -194,6 +194,8 @@ const I18N = {
     statusNeedDbFile: "Select a .db database file.",
     statusNoValidFiles: "No valid database selected.",
     statusAnalyzingFile: "Analyzing {name}...",
+    statusReadingFile: "Reading {name}: {pct}%",
+    statusAnalyzingRows: "Analyzing {name}: {rows} rows processed…",
     statusLoadedFromDb: "Loaded {count} dataset(s) from database.",
     statusNoDbLoaded: "No database loaded yet. Upload a .db in the Database Upload tab.",
     statusLoadingDefaultDb: "Loading default database...",
@@ -383,6 +385,8 @@ const I18N = {
     statusNeedDbFile: "Selecteer een .db databasebestand.",
     statusNoValidFiles: "Geen geldige database geselecteerd.",
     statusAnalyzingFile: "Bezig met analyseren van {name}...",
+    statusReadingFile: "{name} lezen: {pct}%",
+    statusAnalyzingRows: "{name} analyseren: {rows} rijen verwerkt…",
     statusLoadedFromDb: "{count} dataset(s) geladen vanuit database.",
     statusNoDbLoaded: "Nog geen database geladen. Upload een .db in de tab Database Upload.",
     statusLoadingDefaultDb: "Standaarddatabase wordt geladen...",
@@ -815,15 +819,15 @@ async function handleDbUpload(inputId = "dbUploadInput") {
     setStatus(t("statusNeedDbFile"));
     return;
   }
-  const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
+  const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB browser practical limit
   if (file.size > MAX_UPLOAD_BYTES) {
-    setStatus(t("statusUploadFailed", { error: "File exceeds the 500 MB upload limit" }));
+    setStatus(t("statusUploadFailed", { error: "File exceeds the 2 GB upload limit" }));
     return;
   }
 
   setStatus(t("statusAnalyzingFile", { name: file.name }));
   try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
+    const bytes = await readFileWithProgress(file);
     const sqliteError = detectInvalidSqliteBuffer(bytes);
     if (sqliteError) {
       setStatus(t("statusUploadFailed", { error: sqliteError }));
@@ -834,7 +838,10 @@ async function handleDbUpload(inputId = "dbUploadInput") {
       setStatus(t("statusNoValidFiles"));
       return;
     }
-    await persistUploadedDbCache(bytes, file.name);
+    const CACHE_LIMIT_BYTES = 200 * 1024 * 1024; // skip IndexedDB cache for files > 200 MB
+    if (file.size <= CACHE_LIMIT_BYTES) {
+      await persistUploadedDbCache(bytes, file.name);
+    }
     state.datasets = datasets;
     rebuildUnifiedDataset();
     persistLastActiveTarget();
@@ -848,6 +855,24 @@ async function handleDbUpload(inputId = "dbUploadInput") {
   } catch (error) {
     handleError(error, "upload");
   }
+}
+
+function readFileWithProgress(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    let lastPct = -1;
+    reader.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const pct = Math.round((e.loaded / e.total) * 100);
+      if (pct !== lastPct) {
+        lastPct = pct;
+        setStatus(t("statusReadingFile", { name: file.name, pct }));
+      }
+    };
+    reader.onload = () => resolve(new Uint8Array(reader.result));
+    reader.onerror = () => reject(reader.error || new Error("File read failed"));
+    reader.readAsArrayBuffer(file);
+  });
 }
 
 function parseAndAnalyzeCsvStream(file) {
@@ -2664,12 +2689,12 @@ async function analyzeDbBufferToDatasets(bytes, sourceName) {
     const tableRows = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
     const names = tableRows[0]?.values?.map((v) => String(v[0] || "").trim().toLowerCase()) || [];
     const out = [];
-    names.forEach((tableName) => {
+    for (const tableName of names) {
       const targetKey = SQLITE_TABLE_TO_TARGET[tableName];
-      if (!targetKey) return;
+      if (!targetKey) continue;
       const targetDef = getTargetFileDefinition(targetKey);
-      if (!targetDef) return;
-      const analyzed = analyzeSqliteTable(db, tableName);
+      if (!targetDef) continue;
+      const analyzed = await analyzeSqliteTable(db, tableName, sourceName);
       out.push({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name: `${sourceName}::${tableName}`,
@@ -2679,22 +2704,33 @@ async function analyzeDbBufferToDatasets(bytes, sourceName) {
         rows: analyzed.rows,
         analysis: analyzed.analysis
       });
-    });
+    }
     return out.sort((a, b) => getTargetOrder(a.targetKey) - getTargetOrder(b.targetKey));
   } finally {
     db.close();
   }
 }
 
-function analyzeSqliteTable(db, tableName) {
+async function analyzeSqliteTable(db, tableName, sourceName) {
   const engine = createStreamingAnalyzer(`sqlite:${tableName}`);
   const safeTable = tableName.replace(/"/g, "\"\"");
   const stmt = db.prepare(`SELECT * FROM "${safeTable}"`);
+  let rowCount = 0;
+  let lastYieldTs = Date.now();
   try {
     while (stmt.step()) {
       const row = normalizeObjectRowHeaders(stmt.getAsObject());
       row.__sourceTable = tableName;
       engine.ingestRows([row]);
+      rowCount++;
+      if (rowCount % 5000 === 0) {
+        const now = Date.now();
+        if (now - lastYieldTs > PROGRESS_UPDATE_MS) {
+          setStatus(t("statusAnalyzingRows", { name: sourceName || tableName, rows: rowCount.toLocaleString() }));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          lastYieldTs = now;
+        }
+      }
     }
   } finally {
     stmt.free();
