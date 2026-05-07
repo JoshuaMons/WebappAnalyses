@@ -2,9 +2,6 @@
   "version": 2,
   "cleanUrls": true,
   "trailingSlash": false,
-  "error": {
-    "404": "/404.html"
-  },
   "headers": [
     {
       "source": "/(.*)",
