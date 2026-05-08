@@ -2695,10 +2695,8 @@ async function analyzeDbBufferToDatasets(bytes, sourceName) {
     const names = tableRows[0]?.values?.map((v) => String(v[0] || "").trim().toLowerCase()) || [];
     const out = [];
     for (const tableName of names) {
-      const targetKey = SQLITE_TABLE_TO_TARGET[tableName];
-      if (!targetKey) continue;
-      const targetDef = getTargetFileDefinition(targetKey);
-      if (!targetDef) continue;
+      const targetKey = SQLITE_TABLE_TO_TARGET[tableName] || tableName;
+      const targetDef = getTargetFileDefinition(targetKey) || { key: targetKey, label: tableName };
       const analyzed = await analyzeSqliteTable(db, tableName, sourceName);
       out.push({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
