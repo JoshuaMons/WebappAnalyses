@@ -12,7 +12,15 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    const prompt = `Return strict JSON with keys: insights (array), issue_labels (object). Input: ${JSON.stringify(payload || [])}`;
+    const allowedModels = new Set(["gpt-4o", "gpt-4o-mini"]);
+    const selectedModel = allowedModels.has(model) ? model : "gpt-4o";
+    const serializedPayload = JSON.stringify(payload || []);
+    if (serializedPayload.length > 60000) {
+      res.status(413).json({ error: "AI enrichment payload is too large" });
+      return;
+    }
+
+    const prompt = `Return strict JSON with keys: insights (array), issue_labels (object). Input: ${serializedPayload}`;
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -20,7 +28,10 @@ module.exports = async function handler(req, res) {
         Authorization: `Bearer ${effectiveApiKey}`
       },
       body: JSON.stringify({
-        model: model || "gpt-4o",
+        model: selectedModel,
+        temperature: 0.2,
+        max_tokens: 1200,
+        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: "You are a support analytics assistant. Output valid JSON only." },
           { role: "user", content: prompt }

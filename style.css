@@ -211,6 +211,20 @@ button:focus {
   padding: 0 1.2rem 0.8rem;
 }
 
+.dashboard-controls {
+  position: relative;
+  z-index: 1;
+  padding: 0 1.2rem 0.8rem;
+}
+
+.dashboard-controls .controls-inline {
+  margin-bottom: 0;
+}
+
+.dashboard-controls select {
+  min-width: min(420px, 100%);
+}
+
 .tab-btn {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.02);
