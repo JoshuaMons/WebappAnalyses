@@ -556,7 +556,7 @@ function bindEvents() {
     if (el) el.addEventListener(event, handler);
   };
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
-  on("dbUploadAnalyzeBtn", "click", handleDbUpload);
+  on("dbUploadAnalyzeBtn", "click", () => handleDbUpload("dbUploadInput"));
   on("landingDbUploadAnalyzeBtn", "click", () => handleDbUpload("landingDbUploadInput"));
   on("activeDatasetSelect", "change", (e) => {
     state.activeDatasetId = e.target.value || null;
