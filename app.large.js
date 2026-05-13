@@ -52,8 +52,10 @@ const DB_FIELD_PRIORITY = {
   timestamp: ["TIMESTAMP", "STARTEDAT"],
   status: ["GOALS", "COMPLETEDGOALSLIST"],
   escalationFlag: ["HANDOVER_QUESTION_anonymized", "GOALS", "COMPLETEDGOALSLIST"],
-  category: ["MAIN_INTENT", "INTENT", "ENDPOINTNAME", "MEDIA_TYPE"],
-  goalsField: ["GOALS", "COMPLETEDGOALSLIST"]
+  category: ["MAIN_INTENT", "INTENT", "ENDPOINTNAME", "ISSUE_CATEGORY", "CATEGORY"],
+  goalsField: ["GOALS", "COMPLETEDGOALSLIST"],
+  handoverQuestion: ["HANDOVER_QUESTION_anonymized"],
+  issueText: ["HANDOVER_QUESTION_anonymized", "CUSTOMER_INPUT_TEXT_anonymized", "INPUTTEXT_anonymized", "UNRECOGNIZED_QUESTION_anonymized"]
 };
 
 // Rules used by the dedicated MAIN_INTENT handover tab.
@@ -126,6 +128,7 @@ const I18N = {
     chartHandoversOverTime: "Handovers Over Time",
     chartHandoversByCategory: "Handovers by Issue Category",
     handoverCases: "Handover Cases",
+    topHandoverCategoriesTitle: "Top handover categories",
     intentHandoversTitle: "MAIN_INTENT Handover Overview",
     intentQueryTitle: "Query",
     intentQuerySelectLabel: "Select",
@@ -160,6 +163,7 @@ const I18N = {
     handoverReasonFilterLabel: "Reason",
     handoverReasonAll: "All reasons",
     handoverDbColumnLabel: "Column",
+    handoverIssueColumn: "Issue",
     handoverDbOpLabel: "Op",
     handoverDbOpContains: "contains",
     handoverDbOpEq: "=",
@@ -319,6 +323,7 @@ const I18N = {
     chartHandoversOverTime: "Overdrachten over tijd",
     chartHandoversByCategory: "Overdrachten per categorie",
     handoverCases: "Overdrachtsgevallen",
+    topHandoverCategoriesTitle: "Top overdrachtscategorieen",
     intentHandoversTitle: "MAIN_INTENT Handover Overzicht",
     intentQueryTitle: "Query",
     intentQuerySelectLabel: "Select",
@@ -353,6 +358,7 @@ const I18N = {
     handoverReasonFilterLabel: "Reden",
     handoverReasonAll: "Alle redenen",
     handoverDbColumnLabel: "Kolom",
+    handoverIssueColumn: "Onderwerp",
     handoverDbOpLabel: "Operator",
     handoverDbOpContains: "bevat",
     handoverDbOpEq: "=",
@@ -1020,9 +1026,10 @@ function ingestRow(ctx, row) {
   }
 
   const text = Object.values(row).join(" ").toLowerCase();
+  const issueText = deriveIssueText(row, ctx.fields, text);
   const category = deriveIssueCategory(row, ctx.fields, text);
   if (!ctx.fields || !ctx.fields.conversationId) {
-    const temp = buildRowAsConversation(row, text, category, ctx.fields);
+    const temp = buildRowAsConversation(row, text, category, issueText, ctx.fields);
     applyConversationSummary(ctx.aggregate, temp);
     return;
   }
@@ -1035,7 +1042,7 @@ function ingestRow(ctx, row) {
     }
     if (ctx.conversationOverflow) {
       ctx.convOverflowDropped += 1;
-      const temp = buildRowAsConversation(row, text, category, ctx.fields);
+      const temp = buildRowAsConversation(row, text, category, issueText, ctx.fields);
       applyConversationSummary(ctx.aggregate, temp);
       return;
     }
@@ -1049,6 +1056,7 @@ function ingestRow(ctx, row) {
       fallback: false,
       repeated: false,
       category,
+      issueText,
       sourceTable: resolveSourceTable(row),
       firstTime: inferRowTime(row, ctx.fields),
       lastUserMessage: "",
@@ -1058,6 +1066,8 @@ function ingestRow(ctx, row) {
   }
 
   conv.turns += 1;
+  conv.category = chooseBetterCategory(conv.category, category);
+  conv.issueText = chooseBetterIssueText(conv.issueText, issueText);
   const goalText = extractGoalText(row, ctx.fields);
   conv.resolved = conv.resolved || detectResolvedSignal(text, goalText);
   conv.escalated = conv.escalated || detectEscalationSignal(text, goalText, row, ctx.fields);
@@ -1076,7 +1086,7 @@ function ingestRow(ctx, row) {
   enrichConversationPreview(conv.preview, row, ctx.fields, text);
 }
 
-function buildRowAsConversation(row, text, category, fields) {
+function buildRowAsConversation(row, text, category, issueText, fields) {
   const goalText = extractGoalText(row, fields);
   return {
     id: String(row[fields?.conversationId] ?? `row-${Math.random().toString(36).slice(2, 8)}`),
@@ -1088,6 +1098,7 @@ function buildRowAsConversation(row, text, category, fields) {
     fallback: detectFallbackSignal(text, row, fields),
     repeated: false,
     category,
+    issueText,
     sourceTable: resolveSourceTable(row),
     firstTime: inferRowTime(row, fields),
     preview: extractConversationPreview(row, fields, text)
@@ -1138,6 +1149,7 @@ function applyConversationSummary(aggregate, conv) {
         conversationId: conv.id,
         handoverTime: conv.firstTime,
         category: conv.category,
+        issue: conv.issueText || conv.preview?.summary || "",
         sourceTable: conv.sourceTable || conv.preview?.sourceTable || "-",
         reason: detectHandoverReason(conv.handoverKeyword, conv.escalated, conv.fallback, conv.repeated),
         turns: conv.turns
@@ -1327,13 +1339,74 @@ function detectConversationFields(columns) {
     status: pickExact(DB_FIELD_PRIORITY.status) || pick([/status/, /resolved/, /escalat/, /outcome/]),
     escalationFlag: pickExact(DB_FIELD_PRIORITY.escalationFlag) || pick([/escalat/, /handover/, /human/, /agent_required/, /transfer/]),
     category: pickExact(DB_FIELD_PRIORITY.category) || pick([/category/, /intent/, /topic/, /issue/]),
-    goalsField: pickExact(DB_FIELD_PRIORITY.goalsField)
+    goalsField: pickExact(DB_FIELD_PRIORITY.goalsField),
+    handoverQuestion: pickExact(DB_FIELD_PRIORITY.handoverQuestion),
+    issueText: pickExact(DB_FIELD_PRIORITY.issueText) || pick([/handover.*question/, /customer.*input/, /inputtext/, /unrecognized.*question/, /question/, /message/])
   };
 }
 
 function deriveIssueCategory(row, fields, text) {
-  if (fields?.category && row[fields.category]) return String(row[fields.category]).toLowerCase();
-  return categorizeIssue(text);
+  const explicit = normalizeCategoryValue(fields?.category ? row[fields.category] : "");
+  if (explicit && !isGenericCategory(explicit)) return explicit;
+  return categorizeIssue(deriveIssueText(row, fields, text) || text);
+}
+
+function deriveIssueText(row, fields, text) {
+  const candidates = [
+    fields?.handoverQuestion ? row[fields.handoverQuestion] : "",
+    fields?.issueText ? row[fields.issueText] : "",
+    fields?.userMessage ? row[fields.userMessage] : "",
+    text
+  ];
+  for (const value of candidates) {
+    const clean = normalizeIssueText(value);
+    if (clean) return clean;
+  }
+  return "";
+}
+
+function normalizeCategoryValue(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function isGenericCategory(value) {
+  const clean = normalizeCategoryValue(value);
+  return !clean
+    || ["other", "unknown", "none", "null", "n/a", "na", "text", "voice", "chat", "email", "web", "clean data cgny", "clean data sessions"].includes(clean)
+    || /^[-\d\s.]+$/.test(clean);
+}
+
+function normalizeIssueText(value) {
+  const clean = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean || /^(null|none|n\/a|na|undefined|-)$/i.test(clean)) return "";
+  return trimText(clean, 180);
+}
+
+function chooseBetterCategory(current, next) {
+  if (!next || isGenericCategory(next)) return current || "other";
+  if (!current || isGenericCategory(current)) return next;
+  return current;
+}
+
+function chooseBetterIssueText(current, next) {
+  if (!next) return current || "";
+  if (!current) return next;
+  const currentGeneric = isGenericIssueText(current);
+  const nextGeneric = isGenericIssueText(next);
+  if (currentGeneric && !nextGeneric) return next;
+  if (next.length > current.length && !nextGeneric) return next;
+  return current;
+}
+
+function isGenericIssueText(value) {
+  const clean = String(value || "").trim().toLowerCase();
+  return !clean || clean === "other" || clean === "unknown" || clean.length < 8;
 }
 
 function extractGoalText(row, fields) {
@@ -1424,15 +1497,21 @@ function normalizeSentence(value) {
 }
 
 function categorizeIssue(text) {
+  const haystack = normalizeCategoryValue(text);
   const rules = [
-    { key: "billing", pattern: /\b(bill|invoice|payment|charged|refund|price|subscription)\b/ },
-    { key: "login", pattern: /\b(login|sign in|password|otp|2fa|authentication|locked out)\b/ },
-    { key: "delivery", pattern: /\b(delivery|shipment|shipping|track|courier|package|late)\b/ },
-    { key: "technical", pattern: /\b(error|bug|crash|not working|broken|issue|timeout|api)\b/ },
-    { key: "account", pattern: /\b(account|profile|email change|delete account|settings)\b/ },
-    { key: "order", pattern: /\b(order|cancel|return|exchange|item)\b/ }
+    { key: "billing", pattern: /\b(bill|billing|invoice|factuur|facturen|payment|betaling|betaal|charged|refund|terugbetaling|incasso|price|prijs|kosten|subscription)\b/ },
+    { key: "meter readings", pattern: /\b(meterstand|meterstanden|meter reading|meter readings|slimme meter|meterkast|verbruik|usage|consumption)\b/ },
+    { key: "contract", pattern: /\b(contract|aanmelding|afmelding|opzeg|opzeggen|verlengen|verlenging|leverancier|switch|overstap|aansluiting)\b/ },
+    { key: "tariffs", pattern: /\b(tarief|tarieven|rate|rates|prijsplafond|energieprijs|stroomprijs|gasprijs|vast|variabel)\b/ },
+    { key: "advance amount", pattern: /\b(voorschot|termijnbedrag|maandbedrag|monthly amount|advance)\b/ },
+    { key: "move", pattern: /\b(verhuis|verhuizing|moving|move|adreswijziging|nieuw adres)\b/ },
+    { key: "login", pattern: /\b(login|inloggen|sign in|password|wachtwoord|otp|2fa|authentication|locked out|account)\b/ },
+    { key: "outage", pattern: /\b(storing|outage|geen stroom|geen gas|stroomstoring|gasstoring|not working|broken)\b/ },
+    { key: "solar panels", pattern: /\b(zonnepaneel|zonnepanelen|solar|teruglever|teruglevering|salderen)\b/ },
+    { key: "technical", pattern: /\b(error|fout|bug|crash|timeout|api|technisch|technical)\b/ },
+    { key: "order", pattern: /\b(order|bestelling|cancel|annuleer|return|exchange|item)\b/ }
   ];
-  const hit = rules.find((rule) => rule.pattern.test(text));
+  const hit = rules.find((rule) => rule.pattern.test(haystack));
   return hit ? hit.key : "other";
 }
 
@@ -1832,6 +1911,7 @@ function renderHandovers() {
     datasets: [{ label: t("handovers"), data: cat.map((c) => c[1]), backgroundColor: "#5c8cff" }]
   });
   const rows = (a.handoverRows || []).map((r) => ({ ...r, category: mapIssueLabel(r.category, a) }));
+  renderHandoverCategorySummary(rows, a.handoverCount);
   if (searchInput) {
     searchInput.value = state.handoverView.search || "";
   }
@@ -1896,9 +1976,9 @@ function renderHandovers() {
   renderTable(
     tableWrap,
     pageRows,
-    ["conversationId", "handoverTime", "category", "sourceTable", "reason", "turns"],
+    ["conversationId", "handoverTime", "category", "issue", "sourceTable", "reason", "turns"],
     null,
-    { sourceTable: t("tableSourceTable") }
+    { issue: t("handoverIssueColumn"), sourceTable: t("tableSourceTable") }
   );
 
   let pagerEl = byId("handoverPager");
@@ -1925,6 +2005,38 @@ function renderHandovers() {
       total: rows.length.toLocaleString()
     });
   }
+}
+
+function renderHandoverCategorySummary(rows, total) {
+  const wrap = byId("handoverCategorySummary");
+  if (!wrap) return;
+  const groups = new Map();
+  (rows || []).forEach((row) => {
+    const category = String(row.category || "other");
+    const item = groups.get(category) || { category, count: 0, examples: [] };
+    item.count += 1;
+    if (item.examples.length < 2 && row.issue) item.examples.push(row.issue);
+    groups.set(category, item);
+  });
+  const top = Array.from(groups.values()).sort((a, b) => b.count - a.count).slice(0, 6);
+  if (!top.length) {
+    wrap.innerHTML = "";
+    return;
+  }
+  wrap.innerHTML = top.map((item) => {
+    const pct = total ? `${toPct(item.count, total)}%` : "0%";
+    const examples = item.examples.length
+      ? item.examples.map((example) => `<li>${escapeHtml(example)}</li>`).join("")
+      : `<li>${escapeHtml(t("noDataAvailable"))}</li>`;
+    return `
+      <article class="handover-summary-card">
+        <div class="handover-summary-card__top">
+          <strong>${escapeHtml(item.category)}</strong>
+          <span>${escapeHtml(String(item.count))} (${escapeHtml(pct)})</span>
+        </div>
+        <ul>${examples}</ul>
+      </article>`;
+  }).join("");
 }
 
 function renderIntentHandovers() {
