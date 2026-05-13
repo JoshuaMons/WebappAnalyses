@@ -88,8 +88,9 @@ const I18N = {
     openAiKeyPlaceholder: "OpenAI API Key (optional if AI is off)",
     runAiBtn: "Run AI Enrichment",
     clearApiKeyBtn: "Clear API Key",
+    clearDataBtn: "Clear Data",
     activeDatasetLabel: "Active dataset",
-    persistLabel: "Stored in session memory until browser closes",
+    persistLabel: "Stored locally in this browser",
     tabOverview: "Overview",
     tabDbUpload: "Database Upload",
     tabExplorer: "Data Explorer",
@@ -280,8 +281,9 @@ const I18N = {
     openAiKeyPlaceholder: "OpenAI API sleutel (optioneel als AI uit staat)",
     runAiBtn: "AI verrijking starten",
     clearApiKeyBtn: "API sleutel wissen",
+    clearDataBtn: "Data wissen",
     activeDatasetLabel: "Actieve dataset",
-    persistLabel: "Opgeslagen in sessiegeheugen totdat de browser sluit",
+    persistLabel: "Lokaal opgeslagen in deze browser",
     tabOverview: "Overzicht",
     tabDbUpload: "Database Upload",
     tabExplorer: "Data Verkenner",
@@ -531,6 +533,12 @@ async function init() {
   hydrateApiKeyInput();
   populateRulesEditor();
   renderDatasetSelect();
+  if (state.datasets.length) {
+    setDashboardLocked(false);
+    activateTab("overviewTab");
+    setStatus("");
+    return;
+  }
   setDashboardLocked(true);
   const cachedDbLoaded = await tryLoadCachedUploadedDatabase();
   if (!cachedDbLoaded) {
@@ -561,6 +569,7 @@ function bindEvents() {
     saveSession();
   });
   on("runAiBtn", "click", runAiEnrichment);
+  on("clearDataBtn", "click", clearData);
   on("clearApiKeyBtn", "click", () => {
     clearApiKeyForSession();
     const keyInput = byId("openAiKey");
@@ -612,6 +621,24 @@ function bindEvents() {
     state.handoverView.page = 1;
     renderHandovers();
   }, DEBOUNCE_MS));
+  on("tableFilterInput", "input", debounce((e) => {
+    state.table.filter = String(e.target.value || "").trim().toLowerCase();
+    state.table.page = 1;
+    renderDataTable();
+  }, DEBOUNCE_MS));
+  on("tablePageSizeSelect", "change", (e) => {
+    state.table.pageSize = Math.max(1, Number(e.target.value || 25));
+    state.table.page = 1;
+    renderDataTable();
+  });
+  on("tablePrevBtn", "click", () => {
+    state.table.page = Math.max(1, state.table.page - 1);
+    renderDataTable();
+  });
+  on("tableNextBtn", "click", () => {
+    state.table.page += 1;
+    renderDataTable();
+  });
   on("intentHandoverSearchInput", "input", debounce((e) => {
     state.intentHandoverView.search = String(e.target.value || "").trim().toLowerCase();
     state.intentHandoverView.page = 1;
@@ -775,10 +802,12 @@ function updateIntentWhereValueSuggestions() {
 function setDashboardLocked(locked) {
   const landing = byId("landingPage");
   const tabs = byId("dashboardTabs");
+  const controls = byId("dashboardControls");
   const main = byId("dashboardMain");
   const isLocked = !!locked;
   if (landing) landing.hidden = !isLocked;
   if (tabs) tabs.hidden = isLocked;
+  if (controls) controls.hidden = isLocked;
   if (main) main.hidden = isLocked;
 }
 
@@ -1459,6 +1488,9 @@ async function requestAiEnrichment(payload, apiKey) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: "gpt-4o",
+      temperature: 0.2,
+      max_tokens: 1200,
+      response_format: { type: "json_object" },
       messages: [
         { role: "system", content: "You are a support analytics assistant. Output valid JSON only." },
         { role: "user", content: `Return strict JSON with keys: insights (array), issue_labels (object). Input: ${JSON.stringify(payload)}` }
@@ -1600,6 +1632,7 @@ function renderActiveTab(tabId) {
   if (activeTab === "dataExplorerTab") {
     renderColumnTypes();
     renderQuality();
+    renderDataTable();
     return;
   }
   if (activeTab === "handoversTab") {

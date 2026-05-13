@@ -7,6 +7,7 @@
     "node": ">=18"
   },
   "scripts": {
+    "check": "node --check app.large.js && node --check api/live-db.js && node --check api/ai-enrich.js",
     "minify": "npx esbuild app.large.js --minify --allow-overwrite --outfile=app.large.js && npx esbuild style.css --minify --allow-overwrite --outfile=style.css",
     "minify:js": "npx esbuild app.large.js --minify --allow-overwrite --outfile=app.large.js",
     "dev": "npx serve ."
