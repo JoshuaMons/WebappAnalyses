@@ -2509,6 +2509,10 @@ function closeHandoverCategoryModal() {
   if (modal) modal.hidden = true;
   if (backdrop) backdrop.hidden = true;
 }
+// Expose for inline onclick attributes in dynamically generated HTML
+window.openHandoverCategoryModal = openHandoverCategoryModal;
+window.hscSwitchTab = hscSwitchTab;
+window.closeHandoverCategoryModal = closeHandoverCategoryModal;
 
 function renderIntentHandovers() {
   const tableWrap = byId("intentHandoverTableWrap");
@@ -2606,18 +2610,24 @@ function renderIntentHandovers() {
   if (diagnostic) {
     if (allHandoverRows.length === 0) {
       const checked = targetDatasets.map((d) => {
-        const cols = d.analysis?.columns || [];
+        const cols = d.rows?.length ? Object.keys(d.rows[0]) : (d.analysis?.columns || []);
         const fields = detectConversationFields(cols);
-        return `<li><strong>${escapeHtml(d.name || d.targetLabel || d.id)}</strong> — ${cols.length} kolommen, categorie-kolom: <code>${escapeHtml(fields.category || "niet gevonden")}</code></li>`;
+        const flagCols = cols.filter((c) => HANDOVER_FLAG_RE.test(c));
+        const fkCols = cols.filter((c) => HANDOVER_FK_RE.test(c));
+        const signals = [];
+        if (fields.category) signals.push(`categorie-kolom: <code>${escapeHtml(fields.category)}</code>`);
+        if (flagCols.length) signals.push(`vlag-kolommen: ${flagCols.map((c) => `<code>${escapeHtml(c)}</code>`).join(", ")}`);
+        if (fkCols.length) signals.push(`handover-FK: ${fkCols.map((c) => `<code>${escapeHtml(c)}</code>`).join(", ")}`);
+        return `<li><strong>${escapeHtml(d.name || d.targetLabel || d.id)}</strong> — ${cols.length} kolommen${signals.length ? " · " + signals.join(" · ") : " · geen handover-signalen herkend"}</li>`;
       }).join("");
       diagnostic.style.display = "block";
       diagnostic.innerHTML = `
         <article class="panel" style="background:#fff8f0;border:1px solid #f4b648;">
           <p style="margin:0 0 0.5rem;color:#92400e;font-weight:600;">Geen handover-rijen gevonden</p>
-          <p class="muted" style="margin:0 0 0.4rem;">De tab zoekt naar rijen waarbij de categorie- of intentkolom een waarde bevat als <em>handover</em>, <em>escalatie</em>, <em>transfer</em>, <em>doorverbinden</em>, <em>medewerker</em> of <em>live chat</em>.</p>
-          <p class="muted" style="margin:0 0 0.5rem;">Doorzochtde dataset${targetDatasets.length > 1 ? "s" : ""}:</p>
+          <p class="muted" style="margin:0 0 0.4rem;">Gedetecteerde signalen: tekst-intent (<em>handover, escalatie, transfer…</em>), boolean vlaggen (<em>is_handover=1</em>) en handover-reden FK's (<em>handover_reason_id≠null</em>).</p>
+          <p class="muted" style="margin:0 0 0.5rem;">Doorzochte dataset${targetDatasets.length > 1 ? "s" : ""}:</p>
           <ul class="muted" style="font-size:0.82rem;">${checked}</ul>
-          <p class="muted" style="margin:0.4rem 0 0;">Kies een andere dataset via het dropdownmenu hierboven, of controleer of de juiste tabel is geladen.</p>
+          <p class="muted" style="margin:0.4rem 0 0;">Kies een andere dataset of controleer of de juiste tabel is geladen.</p>
         </article>`;
     } else {
       diagnostic.style.display = "none";
@@ -2699,6 +2709,36 @@ function updateIntentQuerySummary() {
   el.textContent = `Select: ${sel.length ? sel.join(", ") : "-"} · Distinct: ${q.distinct ? "on" : "off"} · Group by: ${grp.length ? grp.join(", ") : "-"} · Where: ${where} · Limit: ${q.limit || 500}`;
 }
 
+function resolveTopicName(rawId) {
+  const id = String(rawId ?? "").trim();
+  if (!id || id === "-") return id;
+  // Look up human-readable name from any loaded dim_topics-like dataset
+  const topicsDs = (state.datasets || []).find((d) => /topic/i.test(d.name || d.id || ""));
+  if (topicsDs) {
+    const found = (topicsDs.rows || []).find((r) => {
+      const idEntry = Object.entries(r).find(([k]) => /^topic_id$|^id$/i.test(k));
+      return idEntry && String(idEntry[1]) === id;
+    });
+    if (found) {
+      const nameEntry = Object.entries(found).find(([k]) => /name|label|title|description/i.test(k) && !/id$/i.test(k));
+      if (nameEntry) return String(nameEntry[1]);
+    }
+  }
+  return id;
+}
+
+function resolveHandoverCategory(row, cfg) {
+  const catRaw = String(getRowValueCI(row, cfg.mainIntentColumn) || "-");
+  // For star schemas: numeric FK → try to resolve topic name
+  if (/^\d+$/.test(catRaw.trim())) return resolveTopicName(catRaw.trim());
+  if (catRaw !== "-") return catRaw;
+  // Fallback: find any descriptive text column
+  for (const [key, val] of Object.entries(row)) {
+    if (/reason|topic|category|intent|type/i.test(key) && typeof val === "string" && val.length > 1) return val;
+  }
+  return "-";
+}
+
 function collectMainIntentHandoverRows(rows) {
   const columns = rows.length ? Object.keys(rows[0]) : [];
   const cfg = buildIntentHandoverConfig(columns);
@@ -2715,7 +2755,7 @@ function collectMainIntentHandoverRows(rows) {
     const stepsToHandover =
       conversationId && conversationId !== "-" ? (conversationStepCounts.get(conversationId) || 1) : 1;
     const timestamp = String(getRowValueCI(row, cfg.timestampColumn) || "-");
-    const category = String(getRowValueCI(row, cfg.mainIntentColumn) || "-");
+    const category = resolveHandoverCategory(row, cfg);
     out.push({
       contactId,
       conversationId,
@@ -2737,12 +2777,33 @@ function getRowValueCI(row, key) {
   return found ? row[found] : undefined;
 }
 
+const HANDOVER_TEXT_RE = /\bhandover\b|\bescalat|\btransfer\b|\bdoorverbind|\bmedewerker\b|\blive.?chat\b/;
+const HANDOVER_FLAG_RE = /^(is_handover|handover_flag|was_handover|has_handover|is_escalat|was_escalat|is_transfer|was_transfer|transferred|handedover)/i;
+const HANDOVER_FK_RE = /handover.*(reason|type|id)|reason.*handover|^handover_id$|^handover_reason_id$/i;
+
 function isMainIntentHandover(row, cfg) {
   const config = cfg || INTENT_HANDOVER_CONFIG;
-  const value = String(getRowValueCI(row, config.mainIntentColumn) || "").trim().toLowerCase();
-  // Match "handover" exactly, or any value containing handover/escalat/transfer/medewerker signal.
-  return value === "handover" ||
-    /\bhandover\b|\bescalat|\btransfer\b|\bdoorverbind|\bmedewerker\b|\blive.?chat\b/.test(value);
+
+  // 1. Text intent/category column (original)
+  const catVal = String(getRowValueCI(row, config.mainIntentColumn) || "").trim().toLowerCase();
+  if (catVal && (catVal === "handover" || HANDOVER_TEXT_RE.test(catVal))) return true;
+
+  // 2. Scan all columns — handles star-schema DBs where handover is a flag/FK, not text
+  for (const [key, val] of Object.entries(row)) {
+    // 2a. Boolean flag: is_handover=1, transferred=true, etc.
+    if (HANDOVER_FLAG_RE.test(key)) {
+      const sv = String(val).toLowerCase();
+      if (val === 1 || val === true || sv === "1" || sv === "true" || sv === "yes" || sv === "ja") return true;
+    }
+    // 2b. Handover reason FK non-null: handover_reason_id being set means a handover occurred
+    if (HANDOVER_FK_RE.test(key)) {
+      if (val != null && val !== "" && val !== 0 && val !== "0" && val !== "-") return true;
+    }
+    // 2c. Any string column containing handover keywords
+    if (typeof val === "string" && val.length > 1 && HANDOVER_TEXT_RE.test(val.toLowerCase())) return true;
+  }
+
+  return false;
 }
 
 function resolveHandoverContactId(row, cfg, idx) {
