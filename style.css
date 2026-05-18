@@ -654,6 +654,41 @@ ul {
   border: 1px solid rgba(92, 140, 255, 0.5);
 }
 
+.risk-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.risk-high {
+  background: rgba(220, 50, 50, 0.18);
+  border: 1px solid rgba(220, 50, 50, 0.5);
+  color: #ff7070;
+}
+.risk-medium {
+  background: rgba(244, 182, 72, 0.15);
+  border: 1px solid rgba(244, 182, 72, 0.5);
+  color: #f4b648;
+}
+.risk-low {
+  background: rgba(80, 180, 120, 0.15);
+  border: 1px solid rgba(80, 180, 120, 0.5);
+  color: #50c880;
+}
+
+.frustration-table tr.row-high {
+  background: rgba(220, 50, 50, 0.06);
+}
+.frustration-table tr.row-medium {
+  background: rgba(244, 182, 72, 0.05);
+}
+.frustration-table td,
+.frustration-table th {
+  white-space: nowrap;
+}
+
 @media (max-width: 720px) {
   .topbar {
     flex-direction: column;

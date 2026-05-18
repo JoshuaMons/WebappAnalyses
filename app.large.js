@@ -67,10 +67,58 @@ const INTENT_HANDOVER_CONFIG = {
 };
 
 const DEFAULT_RULES = {
-  handoverKeywords: ["agent", "human", "handover", "transfer", "specialist"],
-  escalationKeywords: ["escalat", "handover", "transfer", "human", "agent"],
-  fallbackKeywords: ["i do not understand", "i don't understand", "cannot help", "rephrase", "didn't catch", "fallback", "not sure"],
-  negativeKeywords: ["angry", "frustrat", "upset", "bad", "terrible", "hate", "not working", "still broken", "complain", "annoyed"],
+  handoverKeywords: [
+    // Nederlands — verzoek om medewerker/doorverbinden
+    "medewerker", "medewerkers", "adviseur", "adviseurs", "operator", "collega",
+    "doorverbinden", "doorverbind", "doorgeschakeld", "doorschakelen", "doorschakelt",
+    "terugbellen", "terugbel", "teruggebeld", "telefonisch", "telefoonnummer",
+    "klantenservice", "helpdesk", "livechat", "live chat",
+    "iemand spreken", "iemand te spreken", "met iemand spreken", "met een persoon",
+    "echte medewerker", "menselijke medewerker", "menselijk", "echte persoon", "echt iemand",
+    "supervisor", "manager", "leidinggevende",
+    "handover", "transfer", "mens", "persoon",
+    // Engels
+    "agent", "human", "specialist", "live agent", "real person"
+  ],
+  escalationKeywords: [
+    // Nederlands
+    "escaleer", "escalatie", "escaleren", "geëscaleerd",
+    "handover", "doorverbinden", "doorgeschakeld", "doorschakelen",
+    "medewerker", "adviseur", "supervisor", "manager", "leidinggevende",
+    "klacht", "klachten", "klagen", "doorverbonden",
+    // Engels
+    "escalat", "transfer", "human", "agent"
+  ],
+  fallbackKeywords: [
+    // Nederlands
+    "ik begrijp uw vraag niet", "ik begrijp uw bericht niet", "dat begrijp ik niet",
+    "ik snap uw vraag niet", "ik snap dat niet",
+    "ik kan u niet helpen", "ik kan u daar niet mee helpen", "ik kan daar niet mee helpen",
+    "kunt u dat anders formuleren", "kunt u uw vraag anders stellen",
+    "herformuleer", "herformuleren",
+    "niet begrepen", "onbekend", "niet herkend",
+    "ik heb uw bericht niet begrepen", "ik heb uw vraag niet begrepen",
+    "probeer het opnieuw", "probeer het nog eens",
+    "ik weet het niet", "dat weet ik niet",
+    "dat kan ik niet beantwoorden", "daar kan ik geen antwoord op geven",
+    "mijn excuses, ik begrijp", "sorry, ik begrijp",
+    // Engels
+    "i do not understand", "i don't understand", "cannot help", "rephrase", "didn't catch", "fallback", "not sure"
+  ],
+  negativeKeywords: [
+    // Nederlands
+    "boos", "boze", "kwaad",
+    "gefrustreerd", "frustrerend", "frustratie",
+    "teleurgesteld", "teleurstellend", "teleurstelling",
+    "slecht", "verschrikkelijk", "vreselijk", "afschuwelijk",
+    "haat", "haten", "heb er genoeg van",
+    "werkt niet", "doet het niet", "nog steeds kapot", "nog steeds niet opgelost",
+    "klacht", "klagen", "ontevreden",
+    "geïrriteerd", "irritant", "onacceptabel", "belachelijk", "scandaleus",
+    "schande", "walgelijk",
+    // Engels
+    "angry", "frustrat", "upset", "bad", "terrible", "hate", "not working", "still broken", "complain", "annoyed"
+  ],
   longUnresolvedTurns: 8
 };
 
@@ -647,6 +695,9 @@ function bindEvents() {
     state.handoverView.page = 1;
     renderHandovers();
   }, DEBOUNCE_MS));
+  on("frustrationMinVolume", "input", debounce(() => renderFrustrationTab(), DEBOUNCE_MS));
+  on("frustrationSort", "change", () => renderFrustrationTab());
+  on("frustrationSignalFilter", "change", () => renderFrustrationTab());
   on("tableFilterInput", "input", debounce((e) => {
     state.table.filter = String(e.target.value || "").trim().toLowerCase();
     state.table.page = 1;
@@ -985,7 +1036,12 @@ function createStreamingAnalyzer(sourceName) {
       failureSignals: { repeatedQuestions: 0, negativeSentiment: 0, fallbackResponses: 0, longUnresolved: 0 },
       problemCounts: {},
       problemExamples: {},
-      timelineMap: {}
+      timelineMap: {},
+      negativeByCategory: {},
+      fallbackByCategory: {},
+      repeatedByCategory: {},
+      longUnresolvedByCategory: {},
+      convCountByCategory: {}
     }
   };
 
@@ -1142,6 +1198,13 @@ function applyConversationSummary(aggregate, conv) {
   if (conv.fallback) aggregate.failureSignals.fallbackResponses += 1;
   if (longUnresolved) aggregate.failureSignals.longUnresolved += 1;
 
+  const cat = conv.category || "Overig";
+  aggregate.convCountByCategory[cat] = (aggregate.convCountByCategory[cat] || 0) + 1;
+  if (conv.negative) aggregate.negativeByCategory[cat] = (aggregate.negativeByCategory[cat] || 0) + 1;
+  if (conv.fallback) aggregate.fallbackByCategory[cat] = (aggregate.fallbackByCategory[cat] || 0) + 1;
+  if (conv.repeated) aggregate.repeatedByCategory[cat] = (aggregate.repeatedByCategory[cat] || 0) + 1;
+  if (longUnresolved) aggregate.longUnresolvedByCategory[cat] = (aggregate.longUnresolvedByCategory[cat] || 0) + 1;
+
   const handoverFound = conv.handoverKeyword || conv.escalated || (conv.fallback && conv.repeated);
   aggregate.problemCounts[conv.category] = (aggregate.problemCounts[conv.category] || 0) + 1;
   if (!aggregate.problemExamples[conv.category]) aggregate.problemExamples[conv.category] = [];
@@ -1216,6 +1279,21 @@ function finalizeAnalysis(ctx) {
       examples: ctx.aggregate.problemExamples[problem] || []
     }));
 
+  const allCategories = Object.keys(ctx.aggregate.convCountByCategory);
+  const frustrationByCategory = allCategories.map((cat) => {
+    const volume = ctx.aggregate.convCountByCategory[cat] || 0;
+    const negative = ctx.aggregate.negativeByCategory[cat] || 0;
+    const fallback = ctx.aggregate.fallbackByCategory[cat] || 0;
+    const repeated = ctx.aggregate.repeatedByCategory[cat] || 0;
+    const longUnres = ctx.aggregate.longUnresolvedByCategory[cat] || 0;
+    const handovers = ctx.aggregate.handoverByCategory[cat] || 0;
+    const frustrationScore = negative + fallback + repeated + longUnres;
+    const frustrationPct = volume > 0 ? Math.round((frustrationScore / volume) * 100) : 0;
+    const handoverPct = volume > 0 ? Math.round((handovers / volume) * 100) : 0;
+    const correlationScore = Math.round((frustrationPct * 0.6) + (handoverPct * 0.4));
+    return { cat, volume, negative, fallback, repeated, longUnres, handovers, frustrationScore, frustrationPct, handoverPct, correlationScore };
+  }).sort((a, b) => b.correlationScore - a.correlationScore);
+
   const timeline = Object.entries(ctx.aggregate.timelineMap).sort((a, b) => a[0].localeCompare(b[0]));
   return {
     rowCount: ctx.rowCount,
@@ -1236,6 +1314,7 @@ function finalizeAnalysis(ctx) {
     handoverByCategory: ctx.aggregate.handoverByCategory,
     failureSignals: ctx.aggregate.failureSignals,
     topProblems,
+    frustrationByCategory,
     timeline,
     isLargeMode: ctx.rowCount > LARGE_ROW_THRESHOLD,
     previewOnly: ctx.rowCount > ctx.storedRows.length,
@@ -1488,14 +1567,14 @@ function detectEscalationSignal(text, goalText, row, fields) {
     if (flagValue && flagValue !== "none" && flagValue !== "null") return true;
   }
   if (!goalText) return false;
-  return /\bdirectlivechat\b|\boutside_service_hours_no_agents\b|\bhandover\b|\btransfer\b/.test(goalText);
+  return /\bdirectlivechat\b|\boutside_service_hours_no_agents\b|\bhandover\b|\btransfer\b|\bdoorverbinden\b|\bdoorgeschakeld\b|\bmedewerker\b|\bladder\b|\bescalatie\b|\blive_chat\b|\blivechat\b/.test(goalText);
 }
 
 function detectFallbackSignal(text, row, fields) {
   if (state.regexes.fallbackRegex.test(text)) return true;
   if (fields?.userMessage && !isEmpty(row[fields.userMessage])) {
     const msg = String(row[fields.userMessage]).toLowerCase();
-    if (/\bunrecognized\b|\bonbekend\b|\bniet begrepen\b/.test(msg)) return true;
+    if (/\bunrecognized\b|\bonbekend\b|\bniet begrepen\b|\bniet herkend\b|\bfallback\b|\bniet begrepen\b|\bonbekende invoer\b/.test(msg)) return true;
   }
   return false;
 }
@@ -1785,6 +1864,10 @@ function renderActiveTab(tabId) {
   }
   if (activeTab === "problemsTab") {
     renderProblems();
+    return;
+  }
+  if (activeTab === "frustrationTab") {
+    renderFrustrationTab();
     return;
   }
   if (activeTab === "aiAnalysisTab") {
@@ -2588,6 +2671,123 @@ function closeProblemModal() {
   if (backdrop) backdrop.hidden = true;
 }
 
+function renderFrustrationTab() {
+  const dataset = getActiveDataset();
+  const wrap = byId("frustrationTableWrap");
+  if (!wrap) return;
+  if (!dataset) {
+    wrap.innerHTML = "";
+    destroyChart("frustrationBubble");
+    return;
+  }
+
+  const a = dataset.analysis;
+  const allRows = a.frustrationByCategory || [];
+
+  const minVolRaw = byId("frustrationMinVolume")?.value?.trim();
+  const minVol = minVolRaw ? Math.max(0, Number(minVolRaw) || 0) : 0;
+  const sortBy = byId("frustrationSort")?.value || "correlationScore";
+  const signalFilter = byId("frustrationSignalFilter")?.value || "all";
+
+  let rows = allRows.filter((r) => r.volume >= minVol);
+  if (signalFilter === "negative") rows = rows.filter((r) => r.negative > 0);
+  if (signalFilter === "fallback") rows = rows.filter((r) => r.fallback > 0);
+  if (signalFilter === "repeated") rows = rows.filter((r) => r.repeated > 0);
+  if (signalFilter === "handover") rows = rows.filter((r) => r.handovers > 0);
+
+  rows = [...rows].sort((a, b) => b[sortBy] - a[sortBy]);
+
+  const top20 = rows.slice(0, 20);
+
+  // Bubble chart: x = frustratie%, y = handover%, grootte = volume
+  const maxVol = Math.max(1, ...top20.map((r) => r.volume));
+  drawChart("frustrationBubble", "bubble", {
+    datasets: [{
+      label: "Categorie",
+      data: top20.map((r) => ({
+        x: r.frustrationPct,
+        y: r.handoverPct,
+        r: Math.max(4, Math.round((r.volume / maxVol) * 28)),
+        cat: r.cat,
+        volume: r.volume
+      })),
+      backgroundColor: top20.map((r) => {
+        if (r.correlationScore >= 50) return "rgba(255,80,80,0.65)";
+        if (r.correlationScore >= 25) return "rgba(244,182,72,0.65)";
+        return "rgba(80,180,120,0.65)";
+      }),
+      borderColor: top20.map((r) => {
+        if (r.correlationScore >= 50) return "#e03030";
+        if (r.correlationScore >= 25) return "#d49020";
+        return "#30a060";
+      }),
+      borderWidth: 1.5
+    }]
+  }, {
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const d = ctx.raw;
+            return [`📂 ${d.cat}`, `Volume: ${d.volume}`, `Frustratie: ${d.x}%`, `Handover: ${d.y}%`];
+          }
+        }
+      }
+    },
+    scales: {
+      x: { title: { display: true, text: "Frustratie % (negatief + fallback + herhalingen + lang onopgelost)" } },
+      y: { title: { display: true, text: "Handover %" } }
+    }
+  });
+
+  const riskLabel = (score) => {
+    if (score >= 50) return `<span class="risk-badge risk-high">Hoog risico</span>`;
+    if (score >= 25) return `<span class="risk-badge risk-medium">Gemiddeld</span>`;
+    return `<span class="risk-badge risk-low">Laag</span>`;
+  };
+
+  if (!rows.length) {
+    wrap.innerHTML = `<p class="muted" style="padding:1rem;">Geen categorieën gevonden met de huidige filters.</p>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <table class="data-table frustration-table">
+      <thead>
+        <tr>
+          <th>Categorie</th>
+          <th>Volume</th>
+          <th title="Negatief sentiment">😤 Negatief</th>
+          <th title="Bot begreep niet">🤖 Fallback</th>
+          <th title="Herhaalde vragen">🔁 Herhaald</th>
+          <th title="Lang onopgelost">⏱ Lang open</th>
+          <th>Handovers</th>
+          <th>Handover %</th>
+          <th>Frustratie %</th>
+          <th>Correlatie score</th>
+          <th>Risico</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((r) => `
+          <tr class="${r.correlationScore >= 50 ? "row-high" : r.correlationScore >= 25 ? "row-medium" : ""}">
+            <td><strong>${escapeHtml(r.cat)}</strong></td>
+            <td>${r.volume}</td>
+            <td>${r.negative}</td>
+            <td>${r.fallback}</td>
+            <td>${r.repeated}</td>
+            <td>${r.longUnres}</td>
+            <td>${r.handovers}</td>
+            <td>${r.handoverPct}%</td>
+            <td>${r.frustrationPct}%</td>
+            <td><strong>${r.correlationScore}</strong></td>
+            <td>${riskLabel(r.correlationScore)}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
 function renderAiAnalysis() {
   const dataset = getActiveDataset();
   const statusEl = byId("aiAnalysisStatus");
@@ -2713,29 +2913,35 @@ function renderComparison() {
   renderTable(byId("compareTableWrap"), summary, ["dataset", "uploadedAt", "rows", "conversations", "resolutionRate", "handoverRate", "handovers", "mode"]);
 }
 
-function drawChart(canvasId, type, data) {
-  const existing = chartStore[canvasId];
-  if (existing && existing.config.type === type) {
-    existing.data = data;
-    existing.update("none");
-    return;
-  }
+function drawChart(canvasId, type, data, extraOptions) {
   destroyChart(canvasId);
   const ctx = byId(canvasId);
   if (!ctx) return;
-  chartStore[canvasId] = new Chart(ctx, {
-    type,
-    data,
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: "#e8ecff" } } },
-      scales: type === "pie" ? {} : {
-        x: { ticks: { color: "#c5d0f3" }, grid: { color: "rgba(197, 208, 243, 0.12)" } },
-        y: { ticks: { color: "#c5d0f3" }, grid: { color: "rgba(197, 208, 243, 0.12)" } }
-      }
+  const baseOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: "#e8ecff" } } },
+    scales: type === "pie" ? {} : {
+      x: { ticks: { color: "#c5d0f3" }, grid: { color: "rgba(197, 208, 243, 0.12)" } },
+      y: { ticks: { color: "#c5d0f3" }, grid: { color: "rgba(197, 208, 243, 0.12)" } }
     }
-  });
+  };
+  const options = extraOptions
+    ? deepMerge(baseOptions, extraOptions)
+    : baseOptions;
+  chartStore[canvasId] = new Chart(ctx, { type, data, options });
+}
+
+function deepMerge(target, source) {
+  const out = Object.assign({}, target);
+  for (const key of Object.keys(source)) {
+    if (source[key] && typeof source[key] === "object" && !Array.isArray(source[key])) {
+      out[key] = deepMerge(target[key] || {}, source[key]);
+    } else {
+      out[key] = source[key];
+    }
+  }
+  return out;
 }
 
 function destroyChart(id) {
@@ -2982,8 +3188,11 @@ function loadPersistedPayload() {
   return "";
 }
 
-function savePayloadToStorage(payload) {
-  const serialized = JSON.stringify(payload);
+function savePayloadToStorage(_payload) {
+  // Opslaan uitgeschakeld — data wordt nooit gecached tussen sessies.
+  return false;
+  // eslint-disable-next-line no-unreachable
+  const serialized = JSON.stringify(_payload);
   let localOk = false;
   let sessionOk = false;
   try {
@@ -3151,42 +3360,13 @@ function escapeRegex(value) {
 }
 
 function loadRules() {
-  try {
-    const raw = localStorage.getItem(RULES_STORAGE_KEY);
-    if (!raw) {
-      state.rules = cloneDefaultRules();
-      state.regexes = buildRuleRegexes(state.rules);
-      return;
-    }
-    const parsed = JSON.parse(raw);
-    state.rules = {
-      handoverKeywords: Array.isArray(parsed.handoverKeywords) && parsed.handoverKeywords.length
-        ? parsed.handoverKeywords
-        : [...DEFAULT_RULES.handoverKeywords],
-      escalationKeywords: Array.isArray(parsed.escalationKeywords) && parsed.escalationKeywords.length
-        ? parsed.escalationKeywords
-        : [...DEFAULT_RULES.escalationKeywords],
-      fallbackKeywords: Array.isArray(parsed.fallbackKeywords) && parsed.fallbackKeywords.length
-        ? parsed.fallbackKeywords
-        : [...DEFAULT_RULES.fallbackKeywords],
-      negativeKeywords: Array.isArray(parsed.negativeKeywords) && parsed.negativeKeywords.length
-        ? parsed.negativeKeywords
-        : [...DEFAULT_RULES.negativeKeywords],
-      longUnresolvedTurns: Math.max(1, Number(parsed.longUnresolvedTurns || DEFAULT_RULES.longUnresolvedTurns))
-    };
-    state.regexes = buildRuleRegexes(state.rules);
-  } catch {
-    state.rules = cloneDefaultRules();
-    state.regexes = buildRuleRegexes(state.rules);
-  }
+  // Altijd de ingebouwde Nederlandse defaults laden — nooit vanuit localStorage.
+  state.rules = cloneDefaultRules();
+  state.regexes = buildRuleRegexes(state.rules);
 }
 
 function persistRules() {
-  try {
-    localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(state.rules));
-  } catch {
-    // Ignore storage issues.
-  }
+  // Opslaan uitgeschakeld — regels worden altijd opnieuw geladen vanuit de defaults.
 }
 
 function getActiveDataset() {

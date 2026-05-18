@@ -48,6 +48,7 @@
     <button class="tab-btn" data-tab="handoversTab" data-i18n="tabHandovers">Handovers</button>
     <button class="tab-btn" data-tab="intentHandoversTab" data-i18n="tabIntentHandovers">Intent Handovers</button>
     <button class="tab-btn" data-tab="problemsTab" data-i18n="tabProblems">Problem Analysis</button>
+    <button class="tab-btn" data-tab="frustrationTab">Frustratie &amp; Handovers</button>
     <button class="tab-btn" data-tab="aiAnalysisTab" data-i18n="tabAiAnalysis">AI Analysis</button>
     <button class="tab-btn" data-tab="rulesTab" data-i18n="tabRules">Detection Rules</button>
     <button class="tab-btn" data-tab="comparisonTab" data-i18n="tabComparison">Dataset Comparison</button>
@@ -58,7 +59,7 @@
     <div class="controls-inline">
       <label for="activeDatasetSelect" class="muted" data-i18n="activeDatasetLabel">Active dataset</label>
       <select id="activeDatasetSelect"></select>
-      <span class="muted" data-i18n="persistLabel">Stored locally in this browser</span>
+      <span class="muted">Niet opgeslagen — upload elke sessie opnieuw</span>
       <button id="clearDataBtn" class="btn danger" data-i18n="clearDataBtn">Clear Data</button>
     </div>
   </section>
@@ -282,6 +283,47 @@
           </select>
         </div>
         <div id="problemExamplesWrap"></div>
+      </article>
+    </section>
+
+    <section id="frustrationTab" class="tab-content">
+      <article class="panel">
+        <h3>Frustratie &amp; Handover Correlatie</h3>
+        <p class="muted" style="margin-bottom:0.75rem;">
+          Per categorie: hoeveel frustratie-signalen (negatief, fallback, herhalingen, lang onopgelost) en hoe verhoudt dat zich tot het aantal handovers?
+          De <strong>correlatie score</strong> combineert beide (60% frustratie%, 40% handover%). Rood = hoog risico.
+        </p>
+        <div class="controls-inline" style="flex-wrap:wrap;gap:0.5rem 1rem;">
+          <label class="muted">Min. volume</label>
+          <input id="frustrationMinVolume" type="number" min="0" step="1" value="0" style="width:80px;" />
+          <label class="muted">Signaal</label>
+          <select id="frustrationSignalFilter">
+            <option value="all">Alle signalen</option>
+            <option value="negative">Negatief sentiment</option>
+            <option value="fallback">Fallback (bot begreep niet)</option>
+            <option value="repeated">Herhaalde vragen</option>
+            <option value="handover">Heeft handover gehad</option>
+          </select>
+          <label class="muted">Sorteer op</label>
+          <select id="frustrationSort">
+            <option value="correlationScore">Correlatie score (hoog→laag)</option>
+            <option value="frustrationPct">Frustratie %</option>
+            <option value="handoverPct">Handover %</option>
+            <option value="volume">Volume</option>
+            <option value="handovers">Aantal handovers</option>
+          </select>
+        </div>
+      </article>
+      <div class="chart-grid" style="margin-top:0;">
+        <article class="panel" style="grid-column:1/-1;">
+          <h3>Frustratie % vs Handover % per categorie</h3>
+          <p class="muted" style="font-size:0.82rem;">Grootte van de cirkel = volume. Rood = hoog risico, oranje = gemiddeld, groen = laag.</p>
+          <canvas id="frustrationBubble" style="max-height:380px;"></canvas>
+        </article>
+      </div>
+      <article class="panel">
+        <h3>Categorieën gerangschikt op risico</h3>
+        <div id="frustrationTableWrap" class="table-wrap"></div>
       </article>
     </section>
 
