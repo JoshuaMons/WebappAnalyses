@@ -555,7 +555,8 @@ const state = {
     dbOp: "contains",
     dbValue: "",
     page: 1,
-    pageSize: 100
+    pageSize: 100,
+    lastChartDatasetId: null
   },
   intentHandoverView: {
     search: "",
@@ -1067,6 +1068,7 @@ function ingestRow(ctx, row) {
   if (ctx.previewRows.length < MAX_PREVIEW_ROWS) ctx.previewRows.push(row);
   if (ctx.storedRows.length < MAX_STORED_ROWS) ctx.storedRows.push(row);
 
+  const prevColCount = ctx.columns.size;
   Object.keys(row).forEach((col) => {
     ctx.columns.add(col);
     if (!ctx.columnStats[col]) {
@@ -1097,10 +1099,13 @@ function ingestRow(ctx, row) {
     }
   });
 
-  ctx.fields = detectConversationFields(Array.from(ctx.columns));
+  // Only re-detect fields when new columns appear (expensive regex scan).
+  if (ctx.columns.size !== prevColCount || !ctx.fields) {
+    ctx.fields = detectConversationFields(Array.from(ctx.columns));
+  }
 
   const text = Object.values(row).join(" ").toLowerCase();
-  const rowFields = detectConversationFields(Object.keys(row));
+  const rowFields = ctx.fields;
   const issueText = deriveIssueText(row, rowFields, text);
   const category = deriveIssueCategory(row, rowFields, text);
   if (!rowFields || !rowFields.conversationId) {
@@ -1989,6 +1994,13 @@ function renderQuality() {
   );
 }
 
+function buildDatasetSearchIndex(dataset) {
+  if (!dataset._searchIndex || dataset._searchIndex.length !== (dataset.rows || []).length) {
+    dataset._searchIndex = (dataset.rows || []).map((r) => Object.values(r).join(" ").toLowerCase());
+  }
+  return dataset._searchIndex;
+}
+
 function renderDataTable() {
   const dataset = getActiveDataset();
   const wrap = byId("dataTableWrap");
@@ -1999,9 +2011,15 @@ function renderDataTable() {
     pageInfoEl.textContent = "";
     return;
   }
-  const rows = [...(dataset.rows || [])];
+  const rows = dataset.rows || [];
   const keys = dataset.analysis.columns || [];
-  const filtered = !state.table.filter ? rows : rows.filter((r) => Object.values(r).join(" ").toLowerCase().includes(state.table.filter));
+  let filtered;
+  if (!state.table.filter) {
+    filtered = rows;
+  } else {
+    const index = buildDatasetSearchIndex(dataset);
+    filtered = rows.filter((_, i) => index[i]?.includes(state.table.filter));
+  }
   if (state.table.sortKey) filtered.sort((a, b) => compareValues(a[state.table.sortKey], b[state.table.sortKey]) * state.table.sortDir);
   const totalPages = Math.max(1, Math.ceil(filtered.length / state.table.pageSize));
   if (state.table.page > totalPages) state.table.page = totalPages;
@@ -2039,23 +2057,29 @@ function renderHandovers() {
   const a = dataset.analysis;
   byId("kpiHandovers").textContent = String(a.handoverCount);
   byId("kpiHandoverPct").textContent = `${a.handoverRate}%`;
-  const handoverTimeline = {};
-  a.handoverRows.forEach((r) => {
-    const day = safeDay(r.handoverTime);
-    handoverTimeline[day] = (handoverTimeline[day] || 0) + 1;
-  });
-  const entries = Object.entries(handoverTimeline).sort((a1, b1) => a1[0].localeCompare(b1[0]));
-  drawChart("handoverTimeline", "line", {
-    labels: entries.map((e) => e[0]),
-    datasets: [{ label: t("handovers"), data: entries.map((e) => e[1]), borderColor: "#f4b648", tension: 0.25 }]
-  });
-  const cat = Object.entries(a.handoverByCategory).sort((x, y) => y[1] - x[1]);
-  drawChart("handoverCategoryBar", "bar", {
-    labels: cat.map((c) => mapIssueLabel(c[0], a)),
-    datasets: [{ label: t("handovers"), data: cat.map((c) => c[1]), backgroundColor: "#5c8cff" }]
-  });
+
+  // Charts and category summary only update when the dataset changes, not on every filter keystroke.
+  if (state.handoverView.lastChartDatasetId !== dataset.id) {
+    state.handoverView.lastChartDatasetId = dataset.id;
+    const handoverTimeline = {};
+    a.handoverRows.forEach((r) => {
+      const day = safeDay(r.handoverTime);
+      handoverTimeline[day] = (handoverTimeline[day] || 0) + 1;
+    });
+    const entries = Object.entries(handoverTimeline).sort((a1, b1) => a1[0].localeCompare(b1[0]));
+    drawChart("handoverTimeline", "line", {
+      labels: entries.map((e) => e[0]),
+      datasets: [{ label: t("handovers"), data: entries.map((e) => e[1]), borderColor: "#f4b648", tension: 0.25 }]
+    });
+    const cat = Object.entries(a.handoverByCategory).sort((x, y) => y[1] - x[1]);
+    drawChart("handoverCategoryBar", "bar", {
+      labels: cat.map((c) => mapIssueLabel(c[0], a)),
+      datasets: [{ label: t("handovers"), data: cat.map((c) => c[1]), backgroundColor: "#5c8cff" }]
+    });
+    const allRows = (a.handoverRows || []).map((r) => ({ ...r, category: mapIssueLabel(r.category, a) }));
+    renderHandoverCategorySummary(allRows, a.handoverCount);
+  }
   const rows = (a.handoverRows || []).map((r) => ({ ...r, category: mapIssueLabel(r.category, a) }));
-  renderHandoverCategorySummary(rows, a.handoverCount);
   if (searchInput) {
     searchInput.value = state.handoverView.search || "";
   }
@@ -2914,6 +2938,13 @@ function renderComparison() {
 }
 
 function drawChart(canvasId, type, data, extraOptions) {
+  const existing = chartStore[canvasId];
+  if (existing && existing.config.type === type) {
+    // Update data in-place — no destroy/recreate, no animation cost.
+    existing.data = data;
+    existing.update("none");
+    return;
+  }
   destroyChart(canvasId);
   const ctx = byId(canvasId);
   if (!ctx) return;
@@ -3130,23 +3161,27 @@ async function analyzeSqliteTable(db, tableName, sourceName) {
   const engine = createStreamingAnalyzer(`sqlite:${tableName}`);
   const safeTable = tableName.replace(/"/g, "\"\"");
   const stmt = db.prepare(`SELECT * FROM "${safeTable}"`);
-  let rowCount = 0;
+  const BATCH = 2000;
+  const YIELD_INTERVAL = 50; // ms — keep UI responsive
+  let batch = [];
   let lastYieldTs = Date.now();
   try {
     while (stmt.step()) {
       const row = normalizeObjectRowHeaders(stmt.getAsObject());
       row.__sourceTable = tableName;
-      engine.ingestRows([row]);
-      rowCount++;
-      if (rowCount % 5000 === 0) {
+      batch.push(row);
+      if (batch.length >= BATCH) {
+        engine.ingestRows(batch);
+        batch = [];
         const now = Date.now();
-        if (now - lastYieldTs > PROGRESS_UPDATE_MS) {
-          setStatus(t("statusAnalyzingRows", { name: sourceName || tableName, rows: rowCount.toLocaleString() }));
+        if (now - lastYieldTs > YIELD_INTERVAL) {
+          setStatus(t("statusAnalyzingRows", { name: sourceName || tableName, rows: engine.rowCount.toLocaleString() }));
           await new Promise((resolve) => setTimeout(resolve, 0));
           lastYieldTs = now;
         }
       }
     }
+    if (batch.length) engine.ingestRows(batch);
   } finally {
     stmt.free();
   }
@@ -3562,8 +3597,12 @@ function isFiniteNumber(v) {
   return Number.isFinite(n);
 }
 
+const DATETIME_FAST_RE = /^\d{4}-\d{2}-\d{2}|^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/;
 function isDatetime(v) {
-  const d = new Date(v);
+  if (typeof v === "number") return Number.isFinite(v);
+  const s = String(v);
+  if (!DATETIME_FAST_RE.test(s)) return false;
+  const d = new Date(s);
   return Number.isFinite(d.getTime());
 }
 
