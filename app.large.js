@@ -17,10 +17,27 @@ const SQLITE_TABLE_TO_TARGET = {
   analytics: "essent cgny.csv",
   sessions: "essent data.csv",
   genesys: "essent genesys.csv",
-  // Essent SQL-dump -> SQLite import outputs these table names.
   clean_data_cgny: "essent cgny.csv",
   clean_data_sessions: "essent data.csv"
 };
+
+function resolveTableTarget(tableName) {
+  if (SQLITE_TABLE_TO_TARGET[tableName]) return SQLITE_TABLE_TO_TARGET[tableName];
+  const l = tableName.toLowerCase();
+  if (/genesys|gensys/.test(l)) return "essent genesys.csv";
+  if (/cgny|cognogy|cognigy/.test(l)) return "essent cgny.csv";
+  // Generic chatbot/support table name patterns — return a normalized label
+  if (/conversation|gesprek|conv\b/.test(l)) return "conversations";
+  if (/\bmessage|bericht|utterance|turn\b/.test(l)) return "messages";
+  if (/\bsession\b/.test(l)) return "sessions";
+  if (/\bticket\b|\bcase\b|\bincident\b/.test(l)) return "tickets";
+  if (/contact|klant|customer/.test(l)) return "contacts";
+  if (/intent|categor|classif/.test(l)) return "intents";
+  if (/handover|escalat|transfer/.test(l)) return "handovers";
+  if (/log|event|activit/.test(l)) return "events";
+  if (/analytic|report|stat/.test(l)) return "analytics";
+  return tableName;
+}
 let sqlJsPromise = null;
 
 const MAX_PREVIEW_ROWS = 30000;
@@ -45,17 +62,93 @@ const TARGET_DATASET_FILES = [
   { key: "essent genesys.csv", label: "Essent Genesys" }
 ];
 
-// Centralized field priority for schema drift between exports.
+// Centralized field priority — covers Essent-specific names AND generic chatbot/support schemas.
 const DB_FIELD_PRIORITY = {
-  conversationId: ["CGNY_SESSION_ID", "CONVERSATION_ID", "CGNY_CONVERSATION_ID"],
-  userMessage: ["CUSTOMER_INPUT_TEXT_anonymized", "INPUTTEXT_anonymized", "UNRECOGNIZED_QUESTION_anonymized"],
-  timestamp: ["TIMESTAMP", "STARTEDAT"],
-  status: ["GOALS", "COMPLETEDGOALSLIST"],
-  escalationFlag: ["HANDOVER_QUESTION_anonymized", "GOALS", "COMPLETEDGOALSLIST"],
-  category: ["MAIN_INTENT", "INTENT", "ENDPOINTNAME", "ISSUE_CATEGORY", "CATEGORY"],
-  goalsField: ["GOALS", "COMPLETEDGOALSLIST"],
-  handoverQuestion: ["HANDOVER_QUESTION_anonymized"],
-  issueText: ["HANDOVER_QUESTION_anonymized", "CUSTOMER_INPUT_TEXT_anonymized", "INPUTTEXT_anonymized", "UNRECOGNIZED_QUESTION_anonymized"]
+  conversationId: [
+    // Essent-specific
+    "CGNY_SESSION_ID", "CONVERSATION_ID", "CGNY_CONVERSATION_ID",
+    // Generic (case-insensitive lookup is done separately via regex)
+    "conversation_id", "conversationId", "session_id", "sessionId",
+    "chat_id", "chatId", "thread_id", "threadId", "dialog_id", "dialogId",
+    "ticket_id", "ticketId", "case_id", "caseId", "contact_id", "contactId",
+    "interaction_id", "interactionId", "call_id", "callId",
+    "SESSION_ID", "CONTACT_ID", "INTERACTION_ID", "TICKET_ID", "CASE_ID",
+    "id", "ID", "Id"
+  ],
+  userMessage: [
+    // Essent-specific
+    "CUSTOMER_INPUT_TEXT_anonymized", "INPUTTEXT_anonymized", "UNRECOGNIZED_QUESTION_anonymized",
+    // Generic
+    "user_message", "userMessage", "customer_message", "customerMessage",
+    "customer_input", "customerInput", "user_input", "userInput",
+    "message", "text", "content", "input", "query", "question", "utterance",
+    "user_text", "userText", "customer_query", "customerQuery",
+    "MESSAGE", "TEXT", "CONTENT", "INPUT", "QUERY", "QUESTION", "UTTERANCE",
+    "user_utterance", "USER_MESSAGE", "CUSTOMER_INPUT", "BERICHT", "VRAAG"
+  ],
+  botResponse: [
+    "bot_response", "botResponse", "assistant_response", "assistantResponse",
+    "agent_response", "agentResponse", "reply", "response", "answer",
+    "bot_message", "botMessage", "bot_text", "botText",
+    "BOT_RESPONSE", "RESPONSE", "REPLY", "ANSWER", "ANTWOORD"
+  ],
+  timestamp: [
+    // Essent-specific
+    "TIMESTAMP", "STARTEDAT",
+    // Generic
+    "created_at", "createdAt", "timestamp", "datetime", "time", "date",
+    "created", "start_time", "startTime", "end_time", "endTime",
+    "event_time", "eventTime", "occurred_at", "occurredAt",
+    "CREATED_AT", "DATE", "TIME", "DATETIME", "STARTED_AT", "ENDED_AT",
+    "tijdstip", "datum", "TIJDSTIP", "DATUM"
+  ],
+  status: [
+    // Essent-specific
+    "GOALS", "COMPLETEDGOALSLIST",
+    // Generic
+    "status", "state", "outcome", "result", "resolution", "resolved",
+    "completion", "disposition", "STATUS", "STATE", "OUTCOME", "RESOLUTION",
+    "RESOLVED", "COMPLETION", "AFHANDELING", "STATUS_CODE"
+  ],
+  escalationFlag: [
+    // Essent-specific
+    "HANDOVER_QUESTION_anonymized", "GOALS", "COMPLETEDGOALSLIST",
+    // Generic
+    "escalation", "escalated", "escalation_flag", "escalationFlag",
+    "handover", "handover_flag", "handoverFlag", "transfer", "transferred",
+    "human_handoff", "humanHandoff", "requires_agent", "requiresAgent",
+    "ESCALATION", "HANDOVER", "TRANSFER", "ESCALATED", "HUMAN_NEEDED"
+  ],
+  category: [
+    // Essent-specific
+    "MAIN_INTENT", "INTENT", "ENDPOINTNAME", "ISSUE_CATEGORY", "CATEGORY",
+    // Generic
+    "category", "intent", "topic", "issue", "type", "label", "subject",
+    "classification", "class", "tag", "department", "queue",
+    "CATEGORY", "INTENT", "TOPIC", "LABEL", "SUBJECT", "QUEUE",
+    "DEPARTMENT", "AFDELING", "ONDERWERP", "CATEGORIE"
+  ],
+  goalsField: [
+    "GOALS", "COMPLETEDGOALSLIST",
+    "goals", "completed_goals", "completedGoals", "outcomes",
+    "GOALS_COMPLETED", "DOELEN"
+  ],
+  handoverQuestion: [
+    "HANDOVER_QUESTION_anonymized",
+    "handover_question", "handoverQuestion", "escalation_reason",
+    "escalationReason", "transfer_reason", "transferReason",
+    "HANDOVER_REASON", "ESCALATION_REASON"
+  ],
+  issueText: [
+    // Essent-specific
+    "HANDOVER_QUESTION_anonymized", "CUSTOMER_INPUT_TEXT_anonymized",
+    "INPUTTEXT_anonymized", "UNRECOGNIZED_QUESTION_anonymized",
+    // Generic
+    "issue_text", "issueText", "issue_description", "issueDescription",
+    "problem", "problem_description", "problemDescription",
+    "description", "summary", "note", "comment",
+    "DESCRIPTION", "SUMMARY", "PROBLEM", "NOTE", "OMSCHRIJVING"
+  ]
 };
 
 // Rules used by the dedicated MAIN_INTENT handover tab.
@@ -65,6 +158,27 @@ const INTENT_HANDOVER_CONFIG = {
   sessionIdColumns: ["CGNY_SESSION_ID", "CGNY_CONVERSATION_ID"],
   timestampColumn: "TIMESTAMP"
 };
+
+function buildIntentHandoverConfig(columns) {
+  const lower = (s) => String(s).toLowerCase();
+  const find = (patterns) => columns.find((c) => patterns.some((p) => p.test(lower(c))));
+  const findMany = (patterns) => columns.filter((c) => patterns.some((p) => p.test(lower(c))));
+  return {
+    mainIntentColumn:
+      find([/^main_intent$/, /^main.*intent$/, /^intent$/, /^category$/, /^categorie$/, /^topic$/, /^label$/, /^classification$/, /^endpoint/, /^queue$/]) ||
+      INTENT_HANDOVER_CONFIG.mainIntentColumn,
+    contactIdColumn:
+      find([/^contactid$/, /^contact_id$/, /^contact$/, /^klant_id$/, /^customer_id$/]) ||
+      INTENT_HANDOVER_CONFIG.contactIdColumn,
+    sessionIdColumns: (() => {
+      const found = findMany([/session.*id/, /conversation.*id/, /conv.*id/, /chat.*id/, /thread.*id/, /dialog.*id/]);
+      return found.length ? found : INTENT_HANDOVER_CONFIG.sessionIdColumns;
+    })(),
+    timestampColumn:
+      find([/^timestamp$/, /^created_at$/, /^time$/, /^date$/, /^datetime$/, /^started_at$/, /^occurred_at$/]) ||
+      INTENT_HANDOVER_CONFIG.timestampColumn
+  };
+}
 
 const DEFAULT_RULES = {
   handoverKeywords: [
@@ -1433,28 +1547,59 @@ function uniqueValues(values) {
 }
 
 function detectConversationFields(columns) {
-  // Auto-map known columns first, then fallback to regex patterns.
   const columnSet = new Set(columns);
   const has = (name) => columnSet.has(name);
   const pick = (patterns) => columns.find((c) => patterns.some((p) => p.test(c.toLowerCase())));
   const pickMany = (patterns) => columns.filter((c) => patterns.some((p) => p.test(c.toLowerCase())));
   const pickExact = (names) => names.find((name) => has(name)) || null;
   const pickExactMany = (names) => names.filter((name) => has(name));
+
   const categoryCandidates = uniqueValues([
     ...pickExactMany(DB_FIELD_PRIORITY.category),
-    ...pickMany([/main.*intent/, /\bintent\b/, /endpoint/, /categor/, /category/, /topic/, /issue/, /problem/, /reason/, /label/, /type/])
-  ]).filter((column) => !/media.*type|source.*type|mime|content.*type/i.test(column));
+    ...pickMany([
+      /main.*intent/, /\bintent\b/, /endpoint/, /categor/, /topic/,
+      /\bissue\b/, /problem/, /reason/, /label/, /subject/, /queue/,
+      /department/, /afdeling/, /onderwerp/, /classif/, /\btag\b/
+    ])
+  ]).filter((c) => !/media.*type|source.*type|mime|content.*type|row.*type|data.*type/i.test(c));
+
   const issueTextCandidates = uniqueValues([
     ...pickExactMany(DB_FIELD_PRIORITY.issueText),
-    ...pickMany([/handover.*question/, /customer.*input/, /inputtext/, /unrecognized.*question/, /question/, /message/, /omschrijving/, /description/, /summary/, /comment/, /text/])
+    ...pickMany([
+      /handover.*question/, /customer.*input/, /inputtext/, /unrecognized.*question/,
+      /\bquestion\b/, /\bmessage\b/, /omschrijving/, /description/, /summary/,
+      /comment/, /\btext\b/, /utterance/, /\bquery\b/, /\bcontent\b/, /\bnote\b/,
+      /bericht/, /vraag/, /issue.*desc/, /problem.*desc/
+    ])
   ]);
+
   return {
-    conversationId: pickExact(DB_FIELD_PRIORITY.conversationId) || pick([/session.*id/, /conversation.*id/, /^conv_id$/, /^ticket/, /thread.*id$/, /^id$/]),
-    userMessage: pickExact(DB_FIELD_PRIORITY.userMessage) || pick([/user.*message/, /customer.*message/, /customer.*input/, /inputtext/, /question/, /user_text/, /^message$/]),
-    botResponse: pick([/bot.*response/, /assistant.*response/, /agent.*response/, /reply/, /response/]),
-    timestamp: pickExact(DB_FIELD_PRIORITY.timestamp) || pick([/timestamp/, /created.*at/, /time/, /date/]),
-    status: pickExact(DB_FIELD_PRIORITY.status) || pick([/status/, /resolved/, /escalat/, /outcome/]),
-    escalationFlag: pickExact(DB_FIELD_PRIORITY.escalationFlag) || pick([/escalat/, /handover/, /human/, /agent_required/, /transfer/]),
+    conversationId: pickExact(DB_FIELD_PRIORITY.conversationId) || pick([
+      /session.*id/, /conversation.*id/, /conv.*id/, /chat.*id/, /dialog.*id/,
+      /thread.*id/, /ticket.*id/, /case.*id/, /contact.*id/, /interaction.*id/,
+      /call.*id/, /\bsessie\b/, /gesprek.*id/, /^id$/
+    ]),
+    userMessage: pickExact(DB_FIELD_PRIORITY.userMessage) || pick([
+      /user.*message/, /customer.*message/, /customer.*input/, /user.*input/,
+      /inputtext/, /user.*text/, /customer.*query/, /\butterance\b/,
+      /\bvraag\b/, /\bbericht\b/, /^message$/, /^text$/, /^content$/, /^input$/, /^query$/
+    ]),
+    botResponse: pickExact(DB_FIELD_PRIORITY.botResponse) || pick([
+      /bot.*response/, /bot.*message/, /bot.*text/, /assistant.*response/,
+      /agent.*response/, /\breply\b/, /\bresponse\b/, /\banswer\b/, /\bantwoord\b/
+    ]),
+    timestamp: pickExact(DB_FIELD_PRIORITY.timestamp) || pick([
+      /timestamp/, /created.*at/, /occurred.*at/, /event.*time/, /start.*time/,
+      /\btime\b/, /\bdate\b/, /\bdatum\b/, /tijdstip/
+    ]),
+    status: pickExact(DB_FIELD_PRIORITY.status) || pick([
+      /\bstatus\b/, /\bstate\b/, /\bresolved\b/, /\boutcome\b/, /\bresolution\b/,
+      /disposition/, /completion/, /afhandeling/
+    ]),
+    escalationFlag: pickExact(DB_FIELD_PRIORITY.escalationFlag) || pick([
+      /escalat/, /handover/, /human.*handoff/, /requires.*agent/, /transfer/,
+      /doorverbind/, /doorgeschakeld/
+    ]),
     category: categoryCandidates[0] || null,
     categoryCandidates,
     goalsField: pickExact(DB_FIELD_PRIORITY.goalsField),
@@ -2327,19 +2472,21 @@ function updateIntentQuerySummary() {
 }
 
 function collectMainIntentHandoverRows(rows) {
+  const columns = rows.length ? Object.keys(rows[0]) : [];
+  const cfg = buildIntentHandoverConfig(columns);
   const conversationStepCounts = new Map();
   const out = [];
   rows.forEach((row, idx) => {
-    const conversationId = resolveHandoverConversationId(row);
+    const conversationId = resolveHandoverConversationId(row, cfg);
     if (conversationId && conversationId !== "-") {
       const nextCount = (conversationStepCounts.get(conversationId) || 0) + 1;
       conversationStepCounts.set(conversationId, nextCount);
     }
-    if (!isMainIntentHandover(row)) return;
-    const contactId = resolveHandoverContactId(row, idx);
+    if (!isMainIntentHandover(row, cfg)) return;
+    const contactId = resolveHandoverContactId(row, cfg, idx);
     const stepsToHandover =
       conversationId && conversationId !== "-" ? (conversationStepCounts.get(conversationId) || 1) : 1;
-    const timestamp = String(getRowValueCI(row, INTENT_HANDOVER_CONFIG.timestampColumn) || "-");
+    const timestamp = String(getRowValueCI(row, cfg.timestampColumn) || "-");
     out.push({
       contactId,
       conversationId,
@@ -2360,25 +2507,27 @@ function getRowValueCI(row, key) {
   return found ? row[found] : undefined;
 }
 
-function isMainIntentHandover(row) {
-  // Strict match: only rows where MAIN_INTENT equals "handover".
-  const value = String(getRowValueCI(row, INTENT_HANDOVER_CONFIG.mainIntentColumn) || "").trim().toLowerCase();
-  return value === "handover";
+function isMainIntentHandover(row, cfg) {
+  const config = cfg || INTENT_HANDOVER_CONFIG;
+  const value = String(getRowValueCI(row, config.mainIntentColumn) || "").trim().toLowerCase();
+  // Match "handover" exactly, or any value containing handover/escalat/transfer/medewerker signal.
+  return value === "handover" ||
+    /\bhandover\b|\bescalat|\btransfer\b|\bdoorverbind|\bmedewerker\b|\blive.?chat\b/.test(value);
 }
 
-function resolveHandoverContactId(row, idx) {
-  // Prefer CONTACTID, fallback to session/conversation IDs to avoid dropping records.
-  const direct = String(getRowValueCI(row, INTENT_HANDOVER_CONFIG.contactIdColumn) || "").trim();
+function resolveHandoverContactId(row, cfg, idx) {
+  const config = cfg || INTENT_HANDOVER_CONFIG;
+  const direct = String(getRowValueCI(row, config.contactIdColumn) || "").trim();
   if (direct) return direct;
-  const fallback = INTENT_HANDOVER_CONFIG.sessionIdColumns
+  const fallback = config.sessionIdColumns
     .map((col) => String(getRowValueCI(row, col) || "").trim())
     .find(Boolean);
   return fallback || `missing-${idx}`;
 }
 
-function resolveHandoverConversationId(row) {
-  // Conversation identity follows configured fallback order.
-  const id = INTENT_HANDOVER_CONFIG.sessionIdColumns
+function resolveHandoverConversationId(row, cfg) {
+  const config = cfg || INTENT_HANDOVER_CONFIG;
+  const id = config.sessionIdColumns
     .map((col) => String(getRowValueCI(row, col) || "").trim())
     .find(Boolean);
   return id || "-";
@@ -2463,7 +2612,8 @@ function collectRelatedRowsForIntentDetail(detail) {
   const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
   const contactId = String(detail?.contactId || "").trim().toLowerCase();
   if (!contactId) return [];
-  return rows.filter((row) => String(getRowValueCI(row, INTENT_HANDOVER_CONFIG.contactIdColumn) || "").trim().toLowerCase() === contactId);
+  const cfg = rows.length ? buildIntentHandoverConfig(Object.keys(rows[0])) : INTENT_HANDOVER_CONFIG;
+  return rows.filter((row) => String(getRowValueCI(row, cfg.contactIdColumn) || "").trim().toLowerCase() === contactId);
 }
 
 function collectFieldValues(rows, fieldName) {
@@ -2951,10 +3101,10 @@ function drawChart(canvasId, type, data, extraOptions) {
   const baseOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { labels: { color: "#e8ecff" } } },
+    plugins: { legend: { labels: { color: "#1a1c2e" } } },
     scales: type === "pie" ? {} : {
-      x: { ticks: { color: "#c5d0f3" }, grid: { color: "rgba(197, 208, 243, 0.12)" } },
-      y: { ticks: { color: "#c5d0f3" }, grid: { color: "rgba(197, 208, 243, 0.12)" } }
+      x: { ticks: { color: "#5c6080" }, grid: { color: "rgba(0,0,0,0.07)" } },
+      y: { ticks: { color: "#5c6080" }, grid: { color: "rgba(0,0,0,0.07)" } }
     }
   };
   const options = extraOptions
@@ -3138,7 +3288,7 @@ async function analyzeDbBufferToDatasets(bytes, sourceName) {
     const names = tableRows[0]?.values?.map((v) => String(v[0] || "").trim().toLowerCase()) || [];
     const out = [];
     for (const tableName of names) {
-      const targetKey = SQLITE_TABLE_TO_TARGET[tableName] || tableName;
+      const targetKey = resolveTableTarget(tableName);
       const targetDef = getTargetFileDefinition(targetKey) || { key: targetKey, label: tableName };
       const analyzed = await analyzeSqliteTable(db, tableName, sourceName);
       out.push({
