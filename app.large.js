@@ -902,10 +902,13 @@ function bindEvents() {
   on("problemModalBackdrop", "click", closeProblemModal);
   on("intentHandoverModalCloseBtn", "click", closeIntentHandoverModal);
   on("intentHandoverModalBackdrop", "click", closeIntentHandoverModal);
+  on("hscModalCloseBtn", "click", closeHandoverCategoryModal);
+  on("hscModalBackdrop", "click", closeHandoverCategoryModal);
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeProblemModal();
       closeIntentHandoverModal();
+      closeHandoverCategoryModal();
     }
   });
   on("compareModeSelect", "change", (e) => {
@@ -2326,30 +2329,185 @@ function renderHandoverCategorySummary(rows, total) {
   const groups = new Map();
   (rows || []).forEach((row) => {
     const category = String(row.category || "other");
-    const item = groups.get(category) || { category, count: 0, examples: [] };
+    const item = groups.get(category) || { category, count: 0, rows: [], examples: [], reasons: {} };
     item.count += 1;
-    if (item.examples.length < 2 && row.issue) item.examples.push(row.issue);
+    item.rows.push(row);
+    if (item.examples.length < 3 && row.issue) item.examples.push(row.issue);
+    const r = row.reason || "unknown";
+    item.reasons[r] = (item.reasons[r] || 0) + 1;
     groups.set(category, item);
   });
   const top = Array.from(groups.values()).sort((a, b) => b.count - a.count).slice(0, 6);
-  if (!top.length) {
-    wrap.innerHTML = "";
-    return;
-  }
+  if (!top.length) { wrap.innerHTML = ""; return; }
+  state._handoverCategoryGroups = Object.fromEntries(top.map((i) => [i.category, i]));
+  state._handoverCategoryTotal = total;
   wrap.innerHTML = top.map((item) => {
     const pct = total ? `${toPct(item.count, total)}%` : "0%";
+    const catKey = encodeURIComponent(item.category);
+    const topReason = Object.entries(item.reasons).sort((a, b) => b[1] - a[1])[0];
+    const reasonChip = topReason
+      ? `<span class="hsc-reason-chip">${escapeHtml(topReason[0])}</span>`
+      : "";
     const examples = item.examples.length
-      ? item.examples.map((example) => `<li>${escapeHtml(example)}</li>`).join("")
-      : `<li>${escapeHtml(t("noDataAvailable"))}</li>`;
+      ? item.examples.map((e) => `<li>${escapeHtml(e)}</li>`).join("")
+      : `<li class="muted">${escapeHtml(t("noDataAvailable"))}</li>`;
     return `
-      <article class="handover-summary-card">
+      <article class="handover-summary-card handover-summary-card--clickable" role="button" tabindex="0"
+        onclick="openHandoverCategoryModal('${catKey}')"
+        onkeydown="if(event.key==='Enter'||event.key===' ')openHandoverCategoryModal('${catKey}')">
         <div class="handover-summary-card__top">
           <strong>${escapeHtml(item.category)}</strong>
           <span>${escapeHtml(String(item.count))} (${escapeHtml(pct)})</span>
         </div>
+        ${reasonChip}
         <ul>${examples}</ul>
+        <div class="hsc-open-hint">Klik voor details ›</div>
       </article>`;
   }).join("");
+}
+
+function openHandoverCategoryModal(encodedCategory) {
+  const category = decodeURIComponent(encodedCategory);
+  const groups = state._handoverCategoryGroups || {};
+  const total = state._handoverCategoryTotal || 0;
+  const item = groups[category];
+  const modal = byId("hscModal");
+  const backdrop = byId("hscModalBackdrop");
+  if (!modal || !backdrop || !item) return;
+
+  const pct = total ? `${toPct(item.count, total)}%` : "0%";
+  const reasonEntries = Object.entries(item.reasons).sort((a, b) => b[1] - a[1]);
+  const reasonLabels = { keyword: "Handover keyword", escalated: "Geëscaleerd", "fallback+repeated": "Fallback + herhaling", unknown: "Onbekend" };
+
+  // Signal breakdown bars
+  const signalBars = reasonEntries.map(([r, n]) => {
+    const rpct = Math.round((n / item.count) * 100);
+    const label = reasonLabels[r] || r;
+    return `<div class="hsc-signal-row">
+      <span class="hsc-signal-label">${escapeHtml(label)}</span>
+      <div class="hsc-bar-wrap"><div class="hsc-bar" style="width:${rpct}%"></div></div>
+      <span class="hsc-signal-val">${n} <span class="muted">(${rpct}%)</span></span>
+    </div>`;
+  }).join("");
+
+  // Conversations table (up to 200 rows)
+  const displayRows = item.rows.slice(0, 200);
+  const convTableRows = displayRows.map((r) => `
+    <tr>
+      <td class="copyable-cell" title="Kopiëren">${escapeHtml(String(r.conversationId || "-"))}</td>
+      <td>${escapeHtml(String(r.handoverTime || "-"))}</td>
+      <td><span class="hsc-reason-chip hsc-reason-chip--${escapeHtml(String(r.reason || "unknown").replace(/\+/g,"-"))}">${escapeHtml(reasonLabels[r.reason] || r.reason || "-")}</span></td>
+      <td>${escapeHtml(String(r.turns || "-"))}</td>
+      <td>${escapeHtml(String(r.issue || "-"))}</td>
+      <td>${escapeHtml(String(r.sourceTable || "-"))}</td>
+    </tr>`).join("");
+  const moreNote = item.rows.length > 200
+    ? `<p class="muted" style="margin:0.5rem 0 0;font-size:0.82rem;">${item.rows.length - 200} extra rijen niet getoond.</p>`
+    : "";
+
+  // Avg turns
+  const avgTurns = item.rows.length
+    ? (item.rows.reduce((s, r) => s + (Number(r.turns) || 0), 0) / item.rows.length).toFixed(1)
+    : "-";
+  // Earliest / latest
+  const times = item.rows.map((r) => r.handoverTime).filter(Boolean).sort();
+  const earliest = times[0] ? String(times[0]).slice(0, 16) : "-";
+  const latest = times[times.length - 1] ? String(times[times.length - 1]).slice(0, 16) : "-";
+
+  byId("hscModalTitle").textContent = category;
+  byId("hscModalBody").innerHTML = `
+    <div class="hsc-modal-tabs">
+      <button class="hsc-tab-btn active" onclick="hscSwitchTab(this,'hscTabOverview')">Overzicht</button>
+      <button class="hsc-tab-btn" onclick="hscSwitchTab(this,'hscTabConversations')">Gesprekken (${item.rows.length})</button>
+      <button class="hsc-tab-btn" onclick="hscSwitchTab(this,'hscTabSignals')">Signaalanalyse</button>
+    </div>
+
+    <div id="hscTabOverview" class="hsc-tab-panel">
+      <div class="hsc-stat-grid">
+        <div class="hsc-stat-card"><div class="hsc-stat-label">Overdrachten</div><div class="hsc-stat-val">${item.count}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">Aandeel</div><div class="hsc-stat-val">${pct}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">Gem. beurten</div><div class="hsc-stat-val">${avgTurns}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">Vroegste</div><div class="hsc-stat-val hsc-stat-val--sm">${earliest}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">Laatste</div><div class="hsc-stat-val hsc-stat-val--sm">${latest}</div></div>
+      </div>
+      <h4 style="margin:1rem 0 0.5rem;">Overdrachtssignalen</h4>
+      <div class="hsc-signals">${signalBars || '<p class="muted">Geen signaaldata.</p>'}</div>
+      <h4 style="margin:1rem 0 0.5rem;">Meestvoorkomende problemen</h4>
+      <ul>${item.rows.slice(0,8).filter(r=>r.issue).map(r=>`<li style="margin-bottom:0.3rem;font-size:0.88rem;">${escapeHtml(r.issue)}</li>`).join("") || '<li class="muted">Geen voorbeelden.</li>'}</ul>
+    </div>
+
+    <div id="hscTabConversations" class="hsc-tab-panel" hidden>
+      <div class="table-wrap" style="max-height:480px;">
+        <table>
+          <thead><tr>
+            <th>Gesprek ID</th><th>Tijdstip</th><th>Reden</th><th>Beurten</th><th>Probleem</th><th>Bron</th>
+          </tr></thead>
+          <tbody>${convTableRows || '<tr><td colspan="6" class="muted">Geen gesprekken.</td></tr>'}</tbody>
+        </table>
+      </div>
+      ${moreNote}
+    </div>
+
+    <div id="hscTabSignals" class="hsc-tab-panel" hidden>
+      <h4 style="margin:0 0 0.7rem;">Verdeling van overdrachtsoorzaken</h4>
+      <div class="hsc-signals">${signalBars || '<p class="muted">Geen signaaldata.</p>'}</div>
+      <h4 style="margin:1rem 0 0.5rem;">Gedetailleerde signaalstatistieken</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Signaal</th><th>Aantal</th><th>%</th></tr></thead>
+          <tbody>${reasonEntries.map(([r, n]) => `
+            <tr>
+              <td>${escapeHtml(reasonLabels[r] || r)}</td>
+              <td>${n}</td>
+              <td>${Math.round((n / item.count) * 100)}%</td>
+            </tr>`).join("") || '<tr><td colspan="3">-</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+      <h4 style="margin:1rem 0 0.5rem;">Top 10 langste gesprekken (beurten)</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Gesprek ID</th><th>Beurten</th><th>Reden</th><th>Probleem</th></tr></thead>
+          <tbody>${item.rows.slice().sort((a,b)=>(b.turns||0)-(a.turns||0)).slice(0,10).map(r=>`
+            <tr>
+              <td>${escapeHtml(String(r.conversationId||"-"))}</td>
+              <td>${escapeHtml(String(r.turns||"-"))}</td>
+              <td>${escapeHtml(reasonLabels[r.reason]||r.reason||"-")}</td>
+              <td>${escapeHtml(String(r.issue||"-"))}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Copy-cell handler
+  byId("hscModalBody").querySelectorAll(".copyable-cell").forEach((el) => {
+    el.addEventListener("click", () => {
+      const v = el.textContent.trim();
+      navigator.clipboard?.writeText(v).catch(() => {});
+    });
+  });
+
+  backdrop.hidden = false;
+  modal.hidden = false;
+}
+
+function hscSwitchTab(btn, tabId) {
+  const body = byId("hscModalBody");
+  if (!body) return;
+  body.querySelectorAll(".hsc-tab-btn").forEach((b) => b.classList.remove("active"));
+  body.querySelectorAll(".hsc-tab-panel").forEach((p) => { p.hidden = true; });
+  btn.classList.add("active");
+  const panel = byId(tabId);
+  if (panel) panel.hidden = false;
+}
+
+function closeHandoverCategoryModal() {
+  const modal = byId("hscModal");
+  const backdrop = byId("hscModalBackdrop");
+  if (modal) modal.hidden = true;
+  if (backdrop) backdrop.hidden = true;
 }
 
 function renderIntentHandovers() {
