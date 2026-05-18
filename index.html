@@ -176,85 +176,41 @@
     </section>
 
     <section id="intentHandoversTab" class="tab-content">
-      <article class="panel">
-        <h3 data-i18n="intentHandoversTitle">MAIN_INTENT Handover Overview</h3>
-        <div class="query-builder" id="intentQueryBuilder">
-          <div class="query-builder__header">
-            <div>
-              <div class="query-builder__title" data-i18n="intentQueryTitle">Query</div>
-              <div class="query-builder__subtitle muted" data-i18n="intentQuerySubtitle">Filter and aggregate MAIN_INTENT handovers.</div>
-            </div>
-            <button id="intentQueryRunBtn" class="btn primary" data-i18n="intentQueryRunBtn">Run</button>
-          </div>
+      <!-- KPI row -->
+      <div class="kpi-grid">
+        <article class="kpi-card"><h3>Handover-rijen gevonden</h3><p id="ihKpiTotal">0</p></article>
+        <article class="kpi-card"><h3>Datasets doorzocht</h3><p id="ihKpiDatasets">0</p></article>
+        <article class="kpi-card"><h3>Unieke gesprekken</h3><p id="ihKpiConversations">0</p></article>
+      </div>
 
-          <div class="query-grid">
-            <div class="query-field">
-              <label class="muted" data-i18n="intentQuerySelectLabel">Select</label>
-              <div class="ms" data-ms="intentSelect">
-                <button type="button" id="intentSelectBtn" class="ms-btn"></button>
-                <div id="intentSelectPanel" class="ms-panel" hidden></div>
-              </div>
-            </div>
-
-            <div class="query-field query-field--inline">
-              <label class="muted" data-i18n="intentQueryDistinctLabel">Distinct</label>
-              <label class="toggle-wrap">
-                <input id="intentQueryDistinct" type="checkbox" />
-                <span class="muted" data-i18n="intentQueryDistinctHint">Deduplicate selected rows</span>
-              </label>
-            </div>
-
-            <div class="query-field">
-              <label class="muted" data-i18n="intentQueryGroupByLabel">Group by</label>
-              <div class="ms" data-ms="intentGroup">
-                <button type="button" id="intentGroupBtn" class="ms-btn"></button>
-                <div id="intentGroupPanel" class="ms-panel" hidden></div>
-              </div>
-            </div>
-
-            <div class="query-field">
-              <label class="muted" data-i18n="intentQueryAggLabel">Agg</label>
-              <select id="intentQueryAgg">
-                <option value="count">count</option>
-              </select>
-            </div>
-
-            <div class="query-field query-field--span2">
-              <label class="muted" data-i18n="intentQueryWhereLabel">Where</label>
-              <div class="query-where">
-                <select id="intentQueryWhereColumn"></select>
-                <select id="intentQueryWhereOp">
-                  <option value="contains">contains</option>
-                  <option value="eq">=</option>
-                  <option value="gt">&gt;</option>
-                  <option value="lt">&lt;</option>
-                </select>
-                <input id="intentQueryWhereValue" type="text" list="intentQueryWhereValueOptions" data-i18n-placeholder="intentQueryWhereValuePlaceholder" placeholder="Value..." />
-                <datalist id="intentQueryWhereValueOptions"></datalist>
-              </div>
-            </div>
-
-            <div class="query-field">
-              <label class="muted" data-i18n="intentQueryLimitLabel">Limit</label>
-              <input id="intentQueryLimit" type="number" min="1" step="50" value="500" />
-            </div>
-          </div>
-
-          <div class="query-builder__meta muted" id="intentQuerySummary"></div>
+      <!-- Filters -->
+      <article class="panel" style="padding-bottom:0.6rem;">
+        <div class="controls-inline" style="flex-wrap:wrap;gap:0.5rem 1rem;margin-bottom:0;">
+          <label class="muted">Dataset</label>
+          <select id="ihDatasetSelect" style="min-width:220px;"></select>
+          <label class="muted">Zoeken</label>
+          <input id="intentHandoverSearchInput" type="text" placeholder="Zoek op gesprek-ID, contact, categorie..." style="min-width:240px;" />
+          <label class="muted">Bron</label>
+          <select id="ihSourceFilter"><option value="">Alle tabellen</option></select>
+          <label class="muted">Categorie</label>
+          <select id="ihCategoryFilter"><option value="">Alle categorieën</option></select>
         </div>
-        <div id="intentQueryResultsWrap" class="table-wrap"></div>
-        <div class="controls-inline">
-          <input id="intentHandoverSearchInput" type="text" data-i18n-placeholder="intentHandoverSearchPlaceholder" placeholder="Search by ContactID or ConversationID..." />
+      </article>
+
+      <!-- Diagnostic / empty state -->
+      <div id="ihDiagnostic" style="display:none;"></div>
+
+      <!-- Results table -->
+      <article class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.5rem;">
+          <h3 style="margin:0;">Handover-rijen</h3>
           <span id="intentHandoverSummary" class="muted"></span>
         </div>
-        <div id="intentHandoverCardsWrap" class="problem-example-grid"></div>
-        <div class="controls-inline">
-          <button id="intentHandoverPrevBtn" class="btn" data-i18n="prevBtn">Prev</button>
+        <div id="intentHandoverTableWrap" class="table-wrap"></div>
+        <div class="controls-inline" style="margin-top:0.6rem;margin-bottom:0;">
+          <button id="intentHandoverPrevBtn" class="btn">Vorige</button>
           <span id="intentHandoverPageInfo" class="muted"></span>
-          <button id="intentHandoverNextBtn" class="btn" data-i18n="nextBtn">Next</button>
-          <label for="intentHandoverGoToPageInput" data-i18n="intentHandoverGoToPageLabel">Go to page</label>
-          <input id="intentHandoverGoToPageInput" type="number" min="1" step="1" value="1" />
-          <button id="intentHandoverGoToPageBtn" class="btn" data-i18n="intentHandoverGoToPageBtn">Go</button>
+          <button id="intentHandoverNextBtn" class="btn">Volgende</button>
         </div>
       </article>
     </section>

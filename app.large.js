@@ -2353,74 +2353,144 @@ function renderHandoverCategorySummary(rows, total) {
 }
 
 function renderIntentHandovers() {
-  const dataset = getActiveDataset();
-  const wrap = byId("intentHandoverCardsWrap");
+  const tableWrap = byId("intentHandoverTableWrap");
   const summaryEl = byId("intentHandoverSummary");
-  const searchInput = byId("intentHandoverSearchInput");
-  const goToPageInput = byId("intentHandoverGoToPageInput");
   const prevBtn = byId("intentHandoverPrevBtn");
   const nextBtn = byId("intentHandoverNextBtn");
   const pageInfo = byId("intentHandoverPageInfo");
-  if (!wrap || !summaryEl || !pageInfo) return;
-  if (!dataset) {
-    wrap.innerHTML = `<p class="muted">${escapeHtml(t("noDataAvailable"))}</p>`;
-    summaryEl.textContent = t("intentHandoverSummary", { shown: 0, total: 0 });
-    pageInfo.textContent = t("intentHandoverPageInfo", { page: 1, total: 1 });
-    if (goToPageInput) goToPageInput.value = "1";
+  const diagnostic = byId("ihDiagnostic");
+  const kpiTotal = byId("ihKpiTotal");
+  const kpiDatasets = byId("ihKpiDatasets");
+  const kpiConversations = byId("ihKpiConversations");
+  if (!tableWrap || !summaryEl || !pageInfo) return;
+
+  const datasets = state.datasets || [];
+  if (!datasets.length) {
+    if (tableWrap) tableWrap.innerHTML = "";
+    if (summaryEl) summaryEl.textContent = "";
+    if (diagnostic) {
+      diagnostic.style.display = "block";
+      diagnostic.innerHTML = `<article class="panel" style="background:#fff8f0;border-color:#f4b648;"><p style="margin:0;color:#b45309;">Geen datasets geladen. Upload eerst een database via het tabblad <strong>Database Upload</strong>.</p></article>`;
+    }
+    if (kpiTotal) kpiTotal.textContent = "0";
+    if (kpiDatasets) kpiDatasets.textContent = "0";
+    if (kpiConversations) kpiConversations.textContent = "0";
     if (prevBtn) prevBtn.disabled = true;
     if (nextBtn) nextBtn.disabled = true;
     return;
   }
 
-  hydrateIntentQueryBuilder(dataset);
-  renderIntentQueryResults();
+  // Populate dataset selector
+  const datasetSel = byId("ihDatasetSelect");
+  if (datasetSel && !datasetSel.dataset.hydrated) {
+    datasetSel.dataset.hydrated = "1";
+    datasetSel.innerHTML = `<option value="__all__">Alle datasets gecombineerd (${datasets.length})</option>` +
+      datasets.map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.targetLabel || d.id)} (${Number(d.analysis?.rowCount || 0).toLocaleString()} rijen)</option>`).join("");
+    datasetSel.addEventListener("change", () => {
+      state.intentHandoverView.page = 1;
+      delete byId("ihSourceFilter")?.dataset.hydrated;
+      delete byId("ihCategoryFilter")?.dataset.hydrated;
+      renderIntentHandovers();
+    });
+  }
 
-  // Build a row-level list for every MAIN_INTENT handover record.
-  const handoverRows = collectMainIntentHandoverRows(dataset.rows || []);
-  const search = String(state.intentHandoverView.search || "").trim().toLowerCase();
-  if (searchInput) searchInput.value = state.intentHandoverView.search || "";
+  const selectedDatasetId = datasetSel?.value || "__all__";
+  const targetDatasets = selectedDatasetId === "__all__"
+    ? datasets
+    : datasets.filter((d) => d.id === selectedDatasetId);
 
-  const filtered = !search
-    ? handoverRows
-    : handoverRows.filter((item) => {
-        if (item.contactId.toLowerCase().includes(search)) return true;
-        return item.conversationId.toLowerCase().includes(search);
-      });
+  // Collect all rows from selected datasets
+  const allRows = targetDatasets.flatMap((d) => d.rows || []);
+  const allHandoverRows = collectMainIntentHandoverRows(allRows);
 
-  const pageSize = Number(state.intentHandoverView.pageSize || 20);
+  // Populate source + category filters
+  const sourceSel = byId("ihSourceFilter");
+  if (sourceSel && !sourceSel.dataset.hydrated) {
+    sourceSel.dataset.hydrated = "1";
+    const sources = Array.from(new Set(allHandoverRows.map((r) => r.sourceTable).filter(Boolean))).sort();
+    sourceSel.innerHTML = `<option value="">Alle tabellen</option>` +
+      sources.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+    sourceSel.addEventListener("change", () => { state.intentHandoverView.page = 1; renderIntentHandovers(); });
+  }
+  const catSel = byId("ihCategoryFilter");
+  if (catSel && !catSel.dataset.hydrated) {
+    catSel.dataset.hydrated = "1";
+    const cats = Array.from(new Set(allHandoverRows.map((r) => r.category).filter(Boolean))).sort();
+    catSel.innerHTML = `<option value="">Alle categorieën</option>` +
+      cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+    catSel.addEventListener("change", () => { state.intentHandoverView.page = 1; renderIntentHandovers(); });
+  }
+
+  // Apply filters
+  const search = String(byId("intentHandoverSearchInput")?.value || state.intentHandoverView.search || "").trim().toLowerCase();
+  const sourceFilter = sourceSel?.value || "";
+  const catFilter = catSel?.value || "";
+
+  let filtered = allHandoverRows;
+  if (sourceFilter) filtered = filtered.filter((r) => r.sourceTable === sourceFilter);
+  if (catFilter) filtered = filtered.filter((r) => r.category === catFilter);
+  if (search) {
+    filtered = filtered.filter((r) =>
+      String(r.contactId || "").toLowerCase().includes(search) ||
+      String(r.conversationId || "").toLowerCase().includes(search) ||
+      String(r.category || "").toLowerCase().includes(search) ||
+      String(r.sourceTable || "").toLowerCase().includes(search)
+    );
+  }
+
+  // Update KPIs
+  const uniqueConvs = new Set(allHandoverRows.map((r) => r.conversationId).filter((v) => v && v !== "-")).size;
+  if (kpiTotal) kpiTotal.textContent = allHandoverRows.length.toLocaleString();
+  if (kpiDatasets) kpiDatasets.textContent = targetDatasets.length.toLocaleString();
+  if (kpiConversations) kpiConversations.textContent = uniqueConvs.toLocaleString();
+
+  // Diagnostic panel
+  if (diagnostic) {
+    if (allHandoverRows.length === 0) {
+      const checked = targetDatasets.map((d) => {
+        const cols = d.analysis?.columns || [];
+        const fields = detectConversationFields(cols);
+        return `<li><strong>${escapeHtml(d.name || d.targetLabel || d.id)}</strong> — ${cols.length} kolommen, categorie-kolom: <code>${escapeHtml(fields.category || "niet gevonden")}</code></li>`;
+      }).join("");
+      diagnostic.style.display = "block";
+      diagnostic.innerHTML = `
+        <article class="panel" style="background:#fff8f0;border:1px solid #f4b648;">
+          <p style="margin:0 0 0.5rem;color:#92400e;font-weight:600;">Geen handover-rijen gevonden</p>
+          <p class="muted" style="margin:0 0 0.4rem;">De tab zoekt naar rijen waarbij de categorie- of intentkolom een waarde bevat als <em>handover</em>, <em>escalatie</em>, <em>transfer</em>, <em>doorverbinden</em>, <em>medewerker</em> of <em>live chat</em>.</p>
+          <p class="muted" style="margin:0 0 0.5rem;">Doorzochtde dataset${targetDatasets.length > 1 ? "s" : ""}:</p>
+          <ul class="muted" style="font-size:0.82rem;">${checked}</ul>
+          <p class="muted" style="margin:0.4rem 0 0;">Kies een andere dataset via het dropdownmenu hierboven, of controleer of de juiste tabel is geladen.</p>
+        </article>`;
+    } else {
+      diagnostic.style.display = "none";
+    }
+  }
+
+  // Render table
+  const pageSize = Number(state.intentHandoverView.pageSize || 50);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(Math.max(1, Number(state.intentHandoverView.page || 1)), totalPages);
   state.intentHandoverView.page = currentPage;
   const startIdx = (currentPage - 1) * pageSize;
   const pageItems = filtered.slice(startIdx, startIdx + pageSize);
 
-  state.intentHandoverModalItems = pageItems;
-  wrap.innerHTML = pageItems.map((item, idx) => `
-    <article class="problem-example-card intent-handover-card" data-intent-handover-id="${idx}">
-      <div class="problem-meta-row">
-        <span class="problem-meta-chip">${escapeHtml(t("intentHandoverCardContact"))}: ${escapeHtml(item.contactId || "-")}</span>
-        <span class="problem-meta-chip">${escapeHtml(t("intentHandoverStepsLabel"))}: ${escapeHtml(String(item.stepsToHandover || 0))}</span>
-      </div>
-    </article>
-  `).join("");
+  if (!pageItems.length && allHandoverRows.length > 0) {
+    tableWrap.innerHTML = `<p class="muted" style="padding:0.5rem;">Geen rijen gevonden voor deze zoekopdracht.</p>`;
+  } else if (pageItems.length) {
+    const cols = ["conversationId", "contactId", "timestamp", "stepsToHandover", "category", "sourceTable"];
+    const header = cols.map((c) => `<th>${escapeHtml(c)}</th>`).join("");
+    const body = pageItems.map((r) => `<tr>${cols.map((c) => `<td>${escapeHtml(String(r[c] ?? "-"))}</td>`).join("")}</tr>`).join("");
+    tableWrap.innerHTML = `<table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
+  } else {
+    tableWrap.innerHTML = "";
+  }
 
-  summaryEl.textContent = t("intentHandoverSummary", {
-    shown: filtered.length.toLocaleString(),
-    total: handoverRows.length.toLocaleString()
-  });
-  pageInfo.textContent = t("intentHandoverPageInfo", {
-    page: currentPage,
-    total: totalPages
-  });
-  if (goToPageInput) goToPageInput.value = String(currentPage);
+  summaryEl.textContent = `${filtered.length.toLocaleString()} van ${allHandoverRows.length.toLocaleString()} handover-rijen`;
+  pageInfo.textContent = `Pagina ${currentPage} van ${totalPages}`;
   if (prevBtn) prevBtn.disabled = currentPage <= 1;
   if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
-
-  wrap.querySelectorAll(".intent-handover-card").forEach((card) => {
-    card.addEventListener("click", () => {
-      openIntentHandoverModal(Number(card.getAttribute("data-intent-handover-id")));
-    });
-  });
+  if (prevBtn) prevBtn.onclick = () => { state.intentHandoverView.page--; renderIntentHandovers(); };
+  if (nextBtn) nextBtn.onclick = () => { state.intentHandoverView.page++; renderIntentHandovers(); };
 }
 
 function hydrateIntentQueryBuilder(dataset) {
@@ -2487,12 +2557,14 @@ function collectMainIntentHandoverRows(rows) {
     const stepsToHandover =
       conversationId && conversationId !== "-" ? (conversationStepCounts.get(conversationId) || 1) : 1;
     const timestamp = String(getRowValueCI(row, cfg.timestampColumn) || "-");
+    const category = String(getRowValueCI(row, cfg.mainIntentColumn) || "-");
     out.push({
       contactId,
       conversationId,
       sourceTable: resolveSourceTable(row),
       stepsToHandover,
       timestamp,
+      category,
       rowData: row
     });
   });
