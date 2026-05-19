@@ -2226,14 +2226,34 @@ function renderHandovers() {
     return;
   }
   const a = dataset.analysis;
-  byId("kpiHandovers").textContent = String(a.handoverCount);
-  byId("kpiHandoverPct").textContent = `${a.handoverRate}%`;
+
+  // When the combined (unified) dataset is active, merge handoverRows from ALL individual
+  // table analyses — each table analyzed up to 500k rows, so this is far more complete
+  // than the combined analysis which only covers 60k merged rows.
+  const isUnified = dataset === state.unifiedDataset;
+  let effectiveHandoverRows, effectiveHandoverCount, effectiveTotalConversations;
+  if (isUnified && state.datasets.length > 0) {
+    effectiveHandoverRows = state.datasets.flatMap((d) => d.analysis.handoverRows || []);
+    effectiveHandoverCount = state.datasets.reduce((s, d) => s + (d.analysis.handoverCount || 0), 0);
+    effectiveTotalConversations = state.datasets.reduce((s, d) => s + (d.analysis.totalConversations || 0), 0);
+  } else {
+    effectiveHandoverRows = a.handoverRows || [];
+    effectiveHandoverCount = a.handoverCount || 0;
+    effectiveTotalConversations = a.totalConversations || 0;
+  }
+
+  const effectiveHandoverRate = effectiveTotalConversations
+    ? toPct(effectiveHandoverCount, effectiveTotalConversations)
+    : 0;
+  byId("kpiHandovers").textContent = String(effectiveHandoverCount);
+  byId("kpiHandoverPct").textContent = `${effectiveHandoverRate}%`;
 
   // Charts and category summary only update when the dataset changes, not on every filter keystroke.
-  if (state.handoverView.lastChartDatasetId !== dataset.id) {
-    state.handoverView.lastChartDatasetId = dataset.id;
+  const chartKey = dataset.id + (isUnified ? "-merged" : "");
+  if (state.handoverView.lastChartDatasetId !== chartKey) {
+    state.handoverView.lastChartDatasetId = chartKey;
     const handoverTimeline = {};
-    a.handoverRows.forEach((r) => {
+    effectiveHandoverRows.forEach((r) => {
       const day = safeDay(r.handoverTime);
       handoverTimeline[day] = (handoverTimeline[day] || 0) + 1;
     });
@@ -2242,15 +2262,20 @@ function renderHandovers() {
       labels: entries.map((e) => e[0]),
       datasets: [{ label: t("handovers"), data: entries.map((e) => e[1]), borderColor: "#f4b648", tension: 0.25 }]
     });
-    const cat = Object.entries(a.handoverByCategory).sort((x, y) => y[1] - x[1]);
+    const catMap = {};
+    effectiveHandoverRows.forEach((r) => {
+      const c = mapIssueLabel(r.category, a);
+      catMap[c] = (catMap[c] || 0) + 1;
+    });
+    const cat = Object.entries(catMap).sort((x, y) => y[1] - x[1]);
     drawChart("handoverCategoryBar", "bar", {
-      labels: cat.map((c) => mapIssueLabel(c[0], a)),
+      labels: cat.map((c) => c[0]),
       datasets: [{ label: t("handovers"), data: cat.map((c) => c[1]), backgroundColor: "#5c8cff" }]
     });
-    const allRows = (a.handoverRows || []).map((r) => ({ ...r, category: mapIssueLabel(r.category, a) }));
-    renderHandoverCategorySummary(allRows, a.handoverCount);
+    const allRows = effectiveHandoverRows.map((r) => ({ ...r, category: mapIssueLabel(r.category, a) }));
+    renderHandoverCategorySummary(allRows, effectiveHandoverCount);
   }
-  const rows = (a.handoverRows || []).map((r) => ({ ...r, category: mapIssueLabel(r.category, a) }));
+  const rows = effectiveHandoverRows.map((r) => ({ ...r, category: mapIssueLabel(r.category, a) }));
   if (searchInput) {
     searchInput.value = state.handoverView.search || "";
   }
@@ -2364,20 +2389,25 @@ function renderHandoverCategorySummary(rows, total) {
   if (!top.length) { wrap.innerHTML = ""; return; }
   state._handoverCategoryGroups = Object.fromEntries(top.map((i) => [i.category, i]));
   state._handoverCategoryTotal = total;
+
+  // Build cards — use data-hsc-key instead of inline onclick to avoid CSP restrictions
   wrap.innerHTML = top.map((item) => {
     const pct = total ? `${toPct(item.count, total)}%` : "0%";
+    // Store the category index key directly on the element
     const catKey = encodeURIComponent(item.category);
     const topReason = Object.entries(item.reasons).sort((a, b) => b[1] - a[1])[0];
-    const reasonChip = topReason
-      ? `<span class="hsc-reason-chip">${escapeHtml(topReason[0])}</span>`
+    const reasonLabel = topReason ? (() => {
+      const lbl = { keyword: "Handover keyword", escalated: "Geëscaleerd", "fallback+repeated": "Fallback + herhaling", unknown: "Onbekend" };
+      return lbl[topReason[0]] || topReason[0];
+    })() : "";
+    const reasonChip = reasonLabel
+      ? `<span class="hsc-reason-chip">${escapeHtml(reasonLabel)}</span>`
       : "";
     const examples = item.examples.length
       ? item.examples.map((e) => `<li>${escapeHtml(e)}</li>`).join("")
       : `<li class="muted">${escapeHtml(t("noDataAvailable"))}</li>`;
     return `
-      <article class="handover-summary-card handover-summary-card--clickable" role="button" tabindex="0"
-        onclick="openHandoverCategoryModal('${catKey}')"
-        onkeydown="if(event.key==='Enter'||event.key===' ')openHandoverCategoryModal('${catKey}')">
+      <article class="handover-summary-card handover-summary-card--clickable" role="button" tabindex="0" data-hsc-key="${catKey}">
         <div class="handover-summary-card__top">
           <strong>${escapeHtml(item.category)}</strong>
           <span>${escapeHtml(String(item.count))} (${escapeHtml(pct)})</span>
@@ -2387,6 +2417,17 @@ function renderHandoverCategorySummary(rows, total) {
         <div class="hsc-open-hint">Klik voor details ›</div>
       </article>`;
   }).join("");
+
+  // Attach click/keyboard via event delegation — avoids inline-handler CSP issues
+  wrap.onclick = (e) => {
+    const card = e.target.closest("[data-hsc-key]");
+    if (card) openHandoverCategoryModal(card.dataset.hscKey);
+  };
+  wrap.onkeydown = (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const card = e.target.closest("[data-hsc-key]");
+    if (card) { e.preventDefault(); openHandoverCategoryModal(card.dataset.hscKey); }
+  };
 }
 
 function openHandoverCategoryModal(encodedCategory) {
@@ -2396,11 +2437,38 @@ function openHandoverCategoryModal(encodedCategory) {
   const item = groups[category];
   const modal = byId("hscModal");
   const backdrop = byId("hscModalBackdrop");
-  if (!modal || !backdrop || !item) return;
+  if (!modal || !backdrop) return;
+  if (!item) {
+    // Category not found — show a diagnostic instead of silently doing nothing
+    byId("hscModalTitle").textContent = decodeURIComponent(encodedCategory);
+    byId("hscModalBody").innerHTML = `<p class="muted" style="padding:1.5rem;">Geen data gevonden voor deze categorie. Probeer de pagina te vernieuwen.</p>`;
+    backdrop.hidden = false;
+    modal.hidden = false;
+    return;
+  }
 
   const pct = total ? `${toPct(item.count, total)}%` : "0%";
   const reasonEntries = Object.entries(item.reasons).sort((a, b) => b[1] - a[1]);
   const reasonLabels = { keyword: "Handover keyword", escalated: "Geëscaleerd", "fallback+repeated": "Fallback + herhaling", unknown: "Onbekend" };
+
+  // Try to enrich with raw dataset rows matched by conversationId
+  const activeDataset = getActiveDataset();
+  const rawByConvId = {};
+  if (activeDataset) {
+    (activeDataset.rows || []).forEach((row) => {
+      const cid = String(
+        row.conversationId || row.conversation_id || row.conversationid ||
+        row.CONVERSATIONID || row.session_id || row.sessionId || row.id || ""
+      ).trim();
+      if (cid && !rawByConvId[cid]) rawByConvId[cid] = row;
+    });
+  }
+  // Collect all columns from raw rows (for the enriched data view)
+  const rawCols = new Set();
+  Object.values(rawByConvId).forEach((row) => Object.keys(row).forEach((k) => {
+    if (k !== "__sourceTable") rawCols.add(k);
+  }));
+  const rawColList = Array.from(rawCols).slice(0, 20); // cap at 20 cols for display
 
   // Signal breakdown bars
   const signalBars = reasonEntries.map(([r, n]) => {
@@ -2413,21 +2481,6 @@ function openHandoverCategoryModal(encodedCategory) {
     </div>`;
   }).join("");
 
-  // Conversations table (up to 200 rows)
-  const displayRows = item.rows.slice(0, 200);
-  const convTableRows = displayRows.map((r) => `
-    <tr>
-      <td class="copyable-cell" title="Kopiëren">${escapeHtml(String(r.conversationId || "-"))}</td>
-      <td>${escapeHtml(String(r.handoverTime || "-"))}</td>
-      <td><span class="hsc-reason-chip hsc-reason-chip--${escapeHtml(String(r.reason || "unknown").replace(/\+/g,"-"))}">${escapeHtml(reasonLabels[r.reason] || r.reason || "-")}</span></td>
-      <td>${escapeHtml(String(r.turns || "-"))}</td>
-      <td>${escapeHtml(String(r.issue || "-"))}</td>
-      <td>${escapeHtml(String(r.sourceTable || "-"))}</td>
-    </tr>`).join("");
-  const moreNote = item.rows.length > 200
-    ? `<p class="muted" style="margin:0.5rem 0 0;font-size:0.82rem;">${item.rows.length - 200} extra rijen niet getoond.</p>`
-    : "";
-
   // Avg turns
   const avgTurns = item.rows.length
     ? (item.rows.reduce((s, r) => s + (Number(r.turns) || 0), 0) / item.rows.length).toFixed(1)
@@ -2437,93 +2490,200 @@ function openHandoverCategoryModal(encodedCategory) {
   const earliest = times[0] ? String(times[0]).slice(0, 16) : "-";
   const latest = times[times.length - 1] ? String(times[times.length - 1]).slice(0, 16) : "-";
 
+  // Top issues with frequencies
+  const issueFreq = {};
+  item.rows.forEach((r) => { if (r.issue) issueFreq[r.issue] = (issueFreq[r.issue] || 0) + 1; });
+  const topIssues = Object.entries(issueFreq).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  // Timeline (handovers per day)
+  const dayMap = {};
+  item.rows.forEach((r) => {
+    if (!r.handoverTime) return;
+    const day = String(r.handoverTime).slice(0, 10);
+    if (day.length === 10) dayMap[day] = (dayMap[day] || 0) + 1;
+  });
+  const dayEntries = Object.entries(dayMap).sort((a, b) => a[0].localeCompare(b[0]));
+
+  // Source breakdown
+  const srcFreq = {};
+  item.rows.forEach((r) => { const s = r.sourceTable || "onbekend"; srcFreq[s] = (srcFreq[s] || 0) + 1; });
+  const srcEntries = Object.entries(srcFreq).sort((a, b) => b[1] - a[1]);
+
+  // Conversations table — up to 200 rows, enriched with raw row columns if available
+  const displayRows = item.rows.slice(0, 200);
+  const rawEnriched = displayRows.some((r) => rawByConvId[String(r.conversationId || "")]);
+  const convTableHeaders = rawEnriched && rawColList.length
+    ? `<th>ID</th><th>Tijdstip</th><th>Reden</th><th>Beurten</th><th>Probleem</th>${rawColList.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}`
+    : `<th>Gesprek ID</th><th>Tijdstip</th><th>Reden</th><th>Beurten</th><th>Probleem</th><th>Bron</th>`;
+
+  const convTableRows = displayRows.map((r) => {
+    const raw = rawByConvId[String(r.conversationId || "")] || null;
+    const reasonClass = `hsc-reason-chip--${String(r.reason || "unknown").replace(/\+/g, "-")}`;
+    const reasonText = reasonLabels[r.reason] || r.reason || "-";
+    const baseRow = `
+      <td class="copyable-cell">${escapeHtml(String(r.conversationId || "-"))}</td>
+      <td>${escapeHtml(String(r.handoverTime || "-").slice(0, 16))}</td>
+      <td><span class="hsc-reason-chip ${escapeHtml(reasonClass)}">${escapeHtml(reasonText)}</span></td>
+      <td>${escapeHtml(String(r.turns || "-"))}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(String(r.issue || ""))}">${escapeHtml(String(r.issue || "-"))}</td>`;
+    const extraCols = rawEnriched && rawColList.length
+      ? rawColList.map((c) => {
+        const val = raw ? String(raw[c] ?? "-") : "-";
+        return `<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(val)}">${escapeHtml(val.length > 60 ? val.slice(0, 60) + "…" : val)}</td>`;
+      }).join("")
+      : `<td>${escapeHtml(String(r.sourceTable || "-"))}</td>`;
+    return `<tr>${baseRow}${extraCols}</tr>`;
+  }).join("");
+
+  const moreNote = item.rows.length > 200
+    ? `<p class="muted" style="margin:0.5rem 0 0;font-size:0.82rem;">${item.rows.length - 200} extra rijen niet getoond.</p>`
+    : "";
+
   byId("hscModalTitle").textContent = category;
-  byId("hscModalBody").innerHTML = `
-    <div class="hsc-modal-tabs">
-      <button class="hsc-tab-btn active" onclick="hscSwitchTab(this,'hscTabOverview')">Overzicht</button>
-      <button class="hsc-tab-btn" onclick="hscSwitchTab(this,'hscTabConversations')">Gesprekken (${item.rows.length})</button>
-      <button class="hsc-tab-btn" onclick="hscSwitchTab(this,'hscTabSignals')">Signaalanalyse</button>
+
+  const bodyEl = byId("hscModalBody");
+  bodyEl.innerHTML = `
+    <div class="hsc-modal-tabs" data-hsc-tabs>
+      <button class="hsc-tab-btn active" data-hsc-tab="hscTabOverview">Overzicht</button>
+      <button class="hsc-tab-btn" data-hsc-tab="hscTabConversations">Gesprekken (${item.rows.length})</button>
+      <button class="hsc-tab-btn" data-hsc-tab="hscTabSignals">Signaalanalyse</button>
+      <button class="hsc-tab-btn" data-hsc-tab="hscTabTimeline">Tijdlijn (${dayEntries.length}d)</button>
     </div>
 
+    <!-- Tab: Overzicht -->
     <div id="hscTabOverview" class="hsc-tab-panel">
       <div class="hsc-stat-grid">
         <div class="hsc-stat-card"><div class="hsc-stat-label">Overdrachten</div><div class="hsc-stat-val">${item.count}</div></div>
         <div class="hsc-stat-card"><div class="hsc-stat-label">Aandeel</div><div class="hsc-stat-val">${pct}</div></div>
         <div class="hsc-stat-card"><div class="hsc-stat-label">Gem. beurten</div><div class="hsc-stat-val">${avgTurns}</div></div>
-        <div class="hsc-stat-card"><div class="hsc-stat-label">Vroegste</div><div class="hsc-stat-val hsc-stat-val--sm">${earliest}</div></div>
-        <div class="hsc-stat-card"><div class="hsc-stat-label">Laatste</div><div class="hsc-stat-val hsc-stat-val--sm">${latest}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">Eerste overdracht</div><div class="hsc-stat-val hsc-stat-val--sm">${earliest}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">Laatste overdracht</div><div class="hsc-stat-val hsc-stat-val--sm">${latest}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">Databronnen</div><div class="hsc-stat-val">${srcEntries.length}</div></div>
       </div>
-      <h4 style="margin:1rem 0 0.5rem;">Overdrachtssignalen</h4>
-      <div class="hsc-signals">${signalBars || '<p class="muted">Geen signaaldata.</p>'}</div>
-      <h4 style="margin:1rem 0 0.5rem;">Meestvoorkomende problemen</h4>
-      <ul>${item.rows.slice(0,8).filter(r=>r.issue).map(r=>`<li style="margin-bottom:0.3rem;font-size:0.88rem;">${escapeHtml(r.issue)}</li>`).join("") || '<li class="muted">Geen voorbeelden.</li>'}</ul>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-top:1.25rem;">
+        <div>
+          <h4 style="margin:0 0 0.6rem;">Overdrachtssignalen</h4>
+          <div class="hsc-signals">${signalBars || '<p class="muted">Geen signaaldata.</p>'}</div>
+        </div>
+        <div>
+          <h4 style="margin:0 0 0.6rem;">Bron per tabel</h4>
+          ${srcEntries.map(([src, n]) => {
+            const sp = Math.round((n / item.count) * 100);
+            return `<div class="hsc-signal-row">
+              <span class="hsc-signal-label">${escapeHtml(src)}</span>
+              <div class="hsc-bar-wrap"><div class="hsc-bar" style="width:${sp}%;background:#34d399"></div></div>
+              <span class="hsc-signal-val">${n}</span>
+            </div>`;
+          }).join("") || '<p class="muted">–</p>'}
+        </div>
+      </div>
+
+      <h4 style="margin:1.25rem 0 0.6rem;">Top problemen (frequentie)</h4>
+      ${topIssues.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Probleem</th><th>Aantal</th><th>%</th></tr></thead>
+        <tbody>${topIssues.map(([issue, n]) => `
+          <tr>
+            <td>${escapeHtml(issue)}</td>
+            <td>${n}</td>
+            <td>${Math.round((n / item.count) * 100)}%</td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>` : '<p class="muted">Geen probleemdata.</p>'}
     </div>
 
+    <!-- Tab: Gesprekken -->
     <div id="hscTabConversations" class="hsc-tab-panel" hidden>
-      <div class="table-wrap" style="max-height:480px;">
+      ${rawEnriched && rawColList.length ? `<p class="muted" style="margin:0 0 0.5rem;font-size:0.8rem;">Aangevuld met ${rawColList.length} kolommen uit de database (${Object.keys(rawByConvId).length} gesprekken gevonden in opgeslagen rijen).</p>` : ""}
+      <div class="table-wrap" style="max-height:500px;">
         <table>
-          <thead><tr>
-            <th>Gesprek ID</th><th>Tijdstip</th><th>Reden</th><th>Beurten</th><th>Probleem</th><th>Bron</th>
-          </tr></thead>
-          <tbody>${convTableRows || '<tr><td colspan="6" class="muted">Geen gesprekken.</td></tr>'}</tbody>
+          <thead><tr>${convTableHeaders}</tr></thead>
+          <tbody>${convTableRows || `<tr><td colspan="6" class="muted">Geen gesprekken.</td></tr>`}</tbody>
         </table>
       </div>
       ${moreNote}
     </div>
 
+    <!-- Tab: Signaalanalyse -->
     <div id="hscTabSignals" class="hsc-tab-panel" hidden>
-      <h4 style="margin:0 0 0.7rem;">Verdeling van overdrachtsoorzaken</h4>
-      <div class="hsc-signals">${signalBars || '<p class="muted">Geen signaaldata.</p>'}</div>
-      <h4 style="margin:1rem 0 0.5rem;">Gedetailleerde signaalstatistieken</h4>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Signaal</th><th>Aantal</th><th>%</th></tr></thead>
-          <tbody>${reasonEntries.map(([r, n]) => `
-            <tr>
-              <td>${escapeHtml(reasonLabels[r] || r)}</td>
-              <td>${n}</td>
-              <td>${Math.round((n / item.count) * 100)}%</td>
-            </tr>`).join("") || '<tr><td colspan="3">-</td></tr>'}
-          </tbody>
-        </table>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+        <div>
+          <h4 style="margin:0 0 0.6rem;">Overdrachtsoorzaken</h4>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Signaal</th><th>Aantal</th><th>%</th></tr></thead>
+            <tbody>${reasonEntries.map(([r, n]) => `
+              <tr>
+                <td>${escapeHtml(reasonLabels[r] || r)}</td>
+                <td>${n}</td>
+                <td>${Math.round((n / item.count) * 100)}%</td>
+              </tr>`).join("") || '<tr><td colspan="3">-</td></tr>'}
+            </tbody>
+          </table></div>
+        </div>
+        <div>
+          <h4 style="margin:0 0 0.6rem;">Top 10 langste gesprekken</h4>
+          <div class="table-wrap"><table>
+            <thead><tr><th>ID</th><th>Beurten</th><th>Reden</th></tr></thead>
+            <tbody>${item.rows.slice().sort((a, b) => (b.turns || 0) - (a.turns || 0)).slice(0, 10).map((r) => `
+              <tr>
+                <td class="copyable-cell">${escapeHtml(String(r.conversationId || "-"))}</td>
+                <td>${escapeHtml(String(r.turns || "-"))}</td>
+                <td>${escapeHtml(reasonLabels[r.reason] || r.reason || "-")}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table></div>
+        </div>
       </div>
-      <h4 style="margin:1rem 0 0.5rem;">Top 10 langste gesprekken (beurten)</h4>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Gesprek ID</th><th>Beurten</th><th>Reden</th><th>Probleem</th></tr></thead>
-          <tbody>${item.rows.slice().sort((a,b)=>(b.turns||0)-(a.turns||0)).slice(0,10).map(r=>`
-            <tr>
-              <td>${escapeHtml(String(r.conversationId||"-"))}</td>
-              <td>${escapeHtml(String(r.turns||"-"))}</td>
-              <td>${escapeHtml(reasonLabels[r.reason]||r.reason||"-")}</td>
-              <td>${escapeHtml(String(r.issue||"-"))}</td>
-            </tr>`).join("")}
+    </div>
+
+    <!-- Tab: Tijdlijn -->
+    <div id="hscTabTimeline" class="hsc-tab-panel" hidden>
+      ${dayEntries.length ? `
+        <h4 style="margin:0 0 0.75rem;">Overdrachten per dag</h4>
+        <div class="table-wrap" style="max-height:420px;"><table>
+          <thead><tr><th>Datum</th><th>Aantal</th><th>Bar</th></tr></thead>
+          <tbody>${(() => {
+            const maxN = Math.max(...dayEntries.map((d) => d[1]), 1);
+            return dayEntries.map(([day, n]) => `
+              <tr>
+                <td>${escapeHtml(day)}</td>
+                <td>${n}</td>
+                <td style="min-width:120px;"><div style="height:12px;border-radius:3px;background:#5c8cff;width:${Math.round((n / maxN) * 100)}%"></div></td>
+              </tr>`).join("");
+          })()}
           </tbody>
-        </table>
-      </div>
+        </table></div>` : '<p class="muted">Geen tijdstempeldata beschikbaar.</p>'}
     </div>
   `;
 
+  // Tab switching via event delegation — no inline onclick needed
+  bodyEl.querySelector("[data-hsc-tabs]").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-hsc-tab]");
+    if (!btn) return;
+    const tabId = btn.dataset.hscTab;
+    bodyEl.querySelectorAll(".hsc-tab-btn").forEach((b) => b.classList.remove("active"));
+    bodyEl.querySelectorAll(".hsc-tab-panel").forEach((p) => { p.hidden = true; });
+    btn.classList.add("active");
+    const panel = byId(tabId);
+    if (panel) panel.hidden = false;
+  });
+
   // Copy-cell handler
-  byId("hscModalBody").querySelectorAll(".copyable-cell").forEach((el) => {
+  bodyEl.querySelectorAll(".copyable-cell").forEach((el) => {
+    el.style.cursor = "pointer";
+    el.title = "Klik om te kopiëren";
     el.addEventListener("click", () => {
       const v = el.textContent.trim();
-      navigator.clipboard?.writeText(v).catch(() => {});
+      navigator.clipboard?.writeText(v).catch(() => {
+        try { copyTextToClipboard(v); } catch (_) {}
+      });
+      el.style.opacity = "0.5";
+      setTimeout(() => { el.style.opacity = ""; }, 600);
     });
   });
 
   backdrop.hidden = false;
   modal.hidden = false;
-}
-
-function hscSwitchTab(btn, tabId) {
-  const body = byId("hscModalBody");
-  if (!body) return;
-  body.querySelectorAll(".hsc-tab-btn").forEach((b) => b.classList.remove("active"));
-  body.querySelectorAll(".hsc-tab-panel").forEach((p) => { p.hidden = true; });
-  btn.classList.add("active");
-  const panel = byId(tabId);
-  if (panel) panel.hidden = false;
 }
 
 function closeHandoverCategoryModal() {
@@ -2532,9 +2692,8 @@ function closeHandoverCategoryModal() {
   if (modal) modal.hidden = true;
   if (backdrop) backdrop.hidden = true;
 }
-// Expose for inline onclick attributes in dynamically generated HTML
+// Keep these on window in case any external code references them
 window.openHandoverCategoryModal = openHandoverCategoryModal;
-window.hscSwitchTab = hscSwitchTab;
 window.closeHandoverCategoryModal = closeHandoverCategoryModal;
 
 function renderIntentHandovers() {
