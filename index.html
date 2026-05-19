@@ -418,5 +418,15 @@
   </div>
 
   <p id="statusMessage" class="status" hidden></p>
+
+  <!-- Full-page loading overlay shown during heavy database operations -->
+  <div id="dbLoadingOverlay" class="db-loading-overlay" hidden>
+    <div class="db-loading-box">
+      <div class="db-loading-spinner"></div>
+      <p class="db-loading-title">Database laden…</p>
+      <p id="dbLoadingStatus" class="db-loading-sub">Even geduld, dit kan even duren.</p>
+      <p class="db-loading-hint">De browser verwerkt grote bestanden in één keer.<br>De pagina reageert weer zodra de analyse klaar is.</p>
+    </div>
+  </div>
 </body>
 </html>

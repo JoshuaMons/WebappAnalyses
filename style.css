@@ -101,6 +101,59 @@ main,
 
 .status { margin: 0.4rem 0 0; color: var(--accent); min-height: 1.2rem; }
 
+/* ── Database loading overlay ─────────────────────────────── */
+.db-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+.db-loading-overlay[hidden] { display: none; }
+.db-loading-box {
+  background: var(--bg-0, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 16px;
+  padding: 2.5rem 3rem;
+  max-width: 420px;
+  width: calc(100vw - 3rem);
+  text-align: center;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.25);
+}
+@keyframes db-spin {
+  to { transform: rotate(360deg); }
+}
+.db-loading-spinner {
+  width: 52px;
+  height: 52px;
+  border: 5px solid var(--border, #e2e8f0);
+  border-top-color: var(--accent, #6366f1);
+  border-radius: 50%;
+  animation: db-spin 0.9s linear infinite;
+  margin: 0 auto 1.25rem;
+}
+.db-loading-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text, #1e293b);
+  margin: 0 0 0.4rem;
+}
+.db-loading-sub {
+  font-size: 0.88rem;
+  color: var(--accent, #6366f1);
+  margin: 0 0 0.75rem;
+  min-height: 1.2em;
+}
+.db-loading-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+  margin: 0;
+  line-height: 1.5;
+}
+
 input, select, button {
   background: #fff;
   color: var(--text);

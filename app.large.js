@@ -1051,16 +1051,30 @@ async function handleDbUpload(inputId = "dbUploadInput") {
     return;
   }
 
+  // Warn the user before loading very large files — sql.js loads the entire file
+  // into the browser's Wasm heap, which can take 30-120+ seconds and freeze the tab.
+  const LARGE_FILE_WARN_BYTES = 150 * 1024 * 1024; // 150 MB
+  if (file.size > LARGE_FILE_WARN_BYTES) {
+    const sizeMb = Math.round(file.size / (1024 * 1024));
+    const ok = window.confirm(
+      `Dit bestand is ${sizeMb} MB groot. Het laden in de browser kan 30 seconden tot meerdere minuten duren en de pagina tijdelijk onresponsief maken.\n\nDoorgaan?`
+    );
+    if (!ok) return;
+  }
+
   setStatus(t("statusAnalyzingFile", { name: file.name }));
   try {
+    showDbLoadingOverlay(`Bestand lezen: ${file.name}…`);
     const bytes = await readFileWithProgress(file);
     const sqliteError = detectInvalidSqliteBuffer(bytes);
     if (sqliteError) {
+      hideDbLoadingOverlay();
       setStatus(t("statusUploadFailed", { error: sqliteError }));
       return;
     }
     const datasets = await analyzeDbBufferToDatasets(bytes, file.name);
     if (!datasets.length) {
+      hideDbLoadingOverlay();
       setStatus(t("statusNoValidFiles"));
       return;
     }
@@ -1072,6 +1086,7 @@ async function handleDbUpload(inputId = "dbUploadInput") {
     rebuildUnifiedDataset();
     persistLastActiveTarget();
     saveSession();
+    hideDbLoadingOverlay();
     setDashboardLocked(false);
     activateTab("overviewTab");
     renderDatasetSelect();
@@ -1471,14 +1486,22 @@ function rebuildUnifiedDataset() {
     state.activeDatasetId = null;
     return;
   }
-  const mergedRows = state.datasets.flatMap((dataset) => {
+  // Cap how many rows we copy into the unified view to avoid re-analyzing
+  // massive row sets in the browser (each individual dataset already has its own analysis).
+  const MAX_UNIFIED_ROWS = 60000;
+  let totalMerged = 0;
+  const mergedRows = [];
+  for (const dataset of state.datasets) {
     const sourceFromName = String(dataset.name || "").split("::").pop() || "";
     const fallbackSource = sourceFromName || dataset.targetLabel || dataset.targetKey || "dataset";
-    return (dataset.rows || []).map((row) => ({
-      ...row,
-      __sourceTable: row.__sourceTable || fallbackSource
-    }));
-  });
+    for (const row of (dataset.rows || [])) {
+      if (totalMerged >= MAX_UNIFIED_ROWS) break;
+      mergedRows.push({ ...row, __sourceTable: row.__sourceTable || fallbackSource });
+      totalMerged++;
+    }
+    if (totalMerged >= MAX_UNIFIED_ROWS) break;
+  }
+  // Re-analyze only the capped merged row set (fast path for large star-schema DBs).
   const analysis = analyzeRows(mergedRows, { source: "all_tables" });
   state.unifiedDataset = {
     id: "all-tables",
@@ -3553,17 +3576,20 @@ async function tryLoadCachedUploadedDatabase() {
     if (!cached || !(cached.bytes instanceof Uint8Array) || !cached.bytes.length) return false;
     const sqliteError = detectInvalidSqliteBuffer(cached.bytes);
     if (sqliteError) return false;
+    showDbLoadingOverlay(`Vorige database herladen: ${cached.name || "uploaded.db"}…`);
     const datasets = await analyzeDbBufferToDatasets(cached.bytes, cached.name || "uploaded.db");
-    if (!datasets.length) return false;
+    if (!datasets.length) { hideDbLoadingOverlay(); return false; }
     state.datasets = datasets;
     rebuildUnifiedDataset();
     persistLastActiveTarget();
     saveSession();
+    hideDbLoadingOverlay();
     renderDatasetSelect();
     renderAll();
     setStatus(t("statusLoadedFromDb", { count: datasets.length }));
     return true;
   } catch {
+    hideDbLoadingOverlay();
     return false;
   }
 }
@@ -3601,7 +3627,21 @@ async function analyzeDbBufferToDatasets(bytes, sourceName) {
 async function analyzeSqliteTable(db, tableName, sourceName) {
   const engine = createStreamingAnalyzer(`sqlite:${tableName}`);
   const safeTable = tableName.replace(/"/g, "\"\"");
-  const stmt = db.prepare(`SELECT * FROM "${safeTable}"`);
+
+  // Probe total row count so we can apply a LIMIT for very large tables.
+  const MAX_TABLE_ROWS = 500000;
+  let totalRowCount = 0;
+  let isRowLimited = false;
+  try {
+    const countRes = db.exec(`SELECT COUNT(*) FROM "${safeTable}"`);
+    totalRowCount = Number(countRes[0]?.values?.[0]?.[0] || 0);
+    isRowLimited = totalRowCount > MAX_TABLE_ROWS;
+  } catch (_) { /* ignore — fall through to full scan */ }
+
+  const query = isRowLimited
+    ? `SELECT * FROM "${safeTable}" LIMIT ${MAX_TABLE_ROWS}`
+    : `SELECT * FROM "${safeTable}"`;
+  const stmt = db.prepare(query);
   const BATCH = 2000;
   const YIELD_INTERVAL = 50; // ms — keep UI responsive
   let batch = [];
@@ -3616,7 +3656,10 @@ async function analyzeSqliteTable(db, tableName, sourceName) {
         batch = [];
         const now = Date.now();
         if (now - lastYieldTs > YIELD_INTERVAL) {
-          setStatus(t("statusAnalyzingRows", { name: sourceName || tableName, rows: engine.rowCount.toLocaleString() }));
+          const rowLabel = isRowLimited
+            ? `${engine.rowCount.toLocaleString()} / ${MAX_TABLE_ROWS.toLocaleString()}`
+            : engine.rowCount.toLocaleString();
+          setStatus(t("statusAnalyzingRows", { name: sourceName || tableName, rows: rowLabel }));
           await new Promise((resolve) => setTimeout(resolve, 0));
           lastYieldTs = now;
         }
@@ -3626,7 +3669,15 @@ async function analyzeSqliteTable(db, tableName, sourceName) {
   } finally {
     stmt.free();
   }
-  return engine.finalize();
+  const result = engine.finalize();
+  if (isRowLimited) {
+    result.analysis.notes = result.analysis.notes || [];
+    result.analysis.notes.unshift(
+      `Tabel heeft ${totalRowCount.toLocaleString()} rijen — analyse beperkt tot de eerste ${MAX_TABLE_ROWS.toLocaleString()} rijen voor browserprestaties.`
+    );
+    result.analysis.totalDbRows = totalRowCount;
+  }
+  return result;
 }
 
 async function loadSqlJs() {
@@ -3859,6 +3910,12 @@ function setStatus(message) {
   if (!statusEl) return;
   statusEl.textContent = message || "";
   statusEl.hidden = !message;
+  // Mirror into loading overlay sub-text when it's visible
+  const overlay = byId("dbLoadingOverlay");
+  if (overlay && !overlay.hidden) {
+    const sub = byId("dbLoadingStatus");
+    if (sub && message) sub.textContent = message;
+  }
 }
 
 function openUploadedDbCache() {
@@ -3963,7 +4020,20 @@ async function copyTextToClipboard(text) {
 function handleError(error, context = "") {
   const msg = error?.message || String(error || "Unknown error");
   const prefix = context ? `${context}: ` : "";
+  hideDbLoadingOverlay();
   setStatus(t("statusUploadFailed", { error: `${prefix}${msg}` }));
+}
+
+function showDbLoadingOverlay(statusText) {
+  const overlay = byId("dbLoadingOverlay");
+  const sub = byId("dbLoadingStatus");
+  if (overlay) overlay.hidden = false;
+  if (sub && statusText) sub.textContent = statusText;
+}
+
+function hideDbLoadingOverlay() {
+  const overlay = byId("dbLoadingOverlay");
+  if (overlay) overlay.hidden = true;
 }
 
 function debounce(fn, ms) {
