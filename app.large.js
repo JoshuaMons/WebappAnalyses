@@ -277,6 +277,7 @@ const I18N = {
     kpiTotalConversations: "Total Conversations",
     kpiResolutionRate: "Resolution Rate",
     kpiHandoverRate: "Handover Rate",
+    kpiAvgTurnsHandover: "Avg. Turns to Handover",
     chartResolutionDistribution: "Resolution Distribution",
     chartVolumeOverTime: "Conversation Volume Over Time",
     keyInsights: "Key Insights",
@@ -595,6 +596,7 @@ const I18N = {
     kpiTotalConversations: "Totaal gesprekken",
     kpiResolutionRate: "Oplossingsratio",
     kpiHandoverRate: "Overdrachtsratio",
+    kpiAvgTurnsHandover: "Gem. beurten tot overdracht",
     chartResolutionDistribution: "Verdeling opgelost/niet opgelost",
     chartVolumeOverTime: "Gespreksvolume over tijd",
     keyInsights: "Belangrijkste inzichten",
@@ -1433,7 +1435,10 @@ function createStreamingAnalyzer(sourceName) {
       handoverCount: 0,
       handoverRows: [],
       handoverByCategory: {},
-      failureSignals: { repeatedQuestions: 0, negativeSentiment: 0, fallbackResponses: 0, longUnresolved: 0 },
+      handoverBySignal: { escalation: 0, customerRequest: 0, keyword: 0, failureLoop: 0, fallbackRepeated: 0, longUnresolved: 0, negativeSentiment: 0 },
+      handoverByInitiator: { customer: 0, system: 0, unknown: 0 },
+      handoverTurnsAtSignal: [],
+      failureSignals: { repeatedQuestions: 0, negativeSentiment: 0, fallbackResponses: 0, longUnresolved: 0, failureLoops: 0 },
       problemCounts: {},
       problemExamples: {},
       timelineMap: {},
@@ -1531,9 +1536,14 @@ function ingestRow(ctx, row) {
       resolved: false,
       escalated: false,
       handoverKeyword: false,
+      customerRequested: false,
       negative: false,
       fallback: false,
       repeated: false,
+      consecutiveFallbacks: 0,
+      failureLoop: false,
+      handoverSignalTime: null,
+      handoverSignalTurn: null,
       category,
       issueText,
       sourceTable: resolveSourceTable(row),
@@ -1549,19 +1559,47 @@ function ingestRow(ctx, row) {
   conv.issueText = chooseBetterIssueText(conv.issueText, issueText);
   const goalText = extractGoalText(row, rowFields);
   conv.resolved = conv.resolved || detectResolvedSignal(text, goalText);
-  conv.escalated = conv.escalated || detectEscalationSignal(text, goalText, row, rowFields);
-  conv.handoverKeyword = conv.handoverKeyword || state.regexes.handoverRegex.test(text);
+
+  const rowEscalated = detectEscalationSignal(text, goalText, row, rowFields);
+  conv.escalated = conv.escalated || rowEscalated;
+
+  // Detect keyword in full text, but also check user message specifically for customer-initiated
+  const rowHasHandoverKeyword = state.regexes.handoverRegex.test(text);
+  if (rowHasHandoverKeyword) {
+    conv.handoverKeyword = true;
+    // Customer-initiated: keyword appears in the user message field specifically
+    if (rowFields.userMessage && !isEmpty(row[rowFields.userMessage])) {
+      const userMsg = String(row[rowFields.userMessage]).toLowerCase();
+      if (state.regexes.handoverRegex.test(userMsg)) conv.customerRequested = true;
+    }
+  }
+
   conv.negative = conv.negative || state.regexes.negativeRegex.test(text);
-  conv.fallback = conv.fallback || detectFallbackSignal(text, row, rowFields);
+
+  // Track consecutive fallbacks — 3+ in a row = failure loop
+  const rowHasFallback = detectFallbackSignal(text, row, rowFields);
+  if (rowHasFallback) {
+    conv.fallback = true;
+    conv.consecutiveFallbacks = (conv.consecutiveFallbacks || 0) + 1;
+    if (conv.consecutiveFallbacks >= 3) conv.failureLoop = true;
+  } else {
+    conv.consecutiveFallbacks = 0;
+  }
+
   if (rowFields.userMessage) {
     const msg = normalizeSentence(row[rowFields.userMessage]);
     if (msg) {
-      if (conv.lastUserMessage && conv.lastUserMessage === msg) {
-        conv.repeated = true;
-      }
+      if (conv.lastUserMessage && conv.lastUserMessage === msg) conv.repeated = true;
       conv.lastUserMessage = msg;
     }
   }
+
+  // Record when the first handover signal appeared in this conversation
+  if (conv.handoverSignalTime === null && (rowEscalated || rowHasHandoverKeyword || rowHasFallback)) {
+    conv.handoverSignalTime = inferRowTime(row, rowFields);
+    conv.handoverSignalTurn = conv.turns;
+  }
+
   enrichConversationPreview(conv.preview, row, rowFields, text);
 }
 
@@ -1609,7 +1647,14 @@ function applyConversationSummary(aggregate, conv) {
   if (conv.repeated) aggregate.repeatedByCategory[cat] = (aggregate.repeatedByCategory[cat] || 0) + 1;
   if (longUnresolved) aggregate.longUnresolvedByCategory[cat] = (aggregate.longUnresolvedByCategory[cat] || 0) + 1;
 
-  const handoverFound = conv.handoverKeyword || conv.escalated || (conv.fallback && conv.repeated);
+  const signals = buildHandoverSignals(conv, longUnresolved);
+  const minTurnsForFallbackHandover = 4;
+  const handoverFound = signals.length > 0 &&
+    !(signals.length === 1 && signals[0] === "fallbackRepeated" && conv.turns < minTurnsForFallbackHandover) &&
+    !(signals.length === 1 && signals[0] === "negativeSentiment");
+
+  if (conv.failureLoop) aggregate.failureSignals.failureLoops += 1;
+
   aggregate.problemCounts[conv.category] = (aggregate.problemCounts[conv.category] || 0) + 1;
   if (!aggregate.problemExamples[conv.category]) aggregate.problemExamples[conv.category] = [];
   if (aggregate.problemExamples[conv.category].length < 3) {
@@ -1628,16 +1673,26 @@ function applyConversationSummary(aggregate, conv) {
   aggregate.timelineMap[day] = (aggregate.timelineMap[day] || 0) + 1;
 
   if (handoverFound) {
+    const confidence = computeHandoverConfidence(conv, longUnresolved);
+    const initiatedBy = conv.customerRequested ? "customer" : (conv.escalated ? "system" : "unknown");
     aggregate.handoverCount += 1;
     aggregate.handoverByCategory[conv.category] = (aggregate.handoverByCategory[conv.category] || 0) + 1;
+    for (const sig of signals) {
+      if (aggregate.handoverBySignal[sig] !== undefined) aggregate.handoverBySignal[sig] += 1;
+    }
+    aggregate.handoverByInitiator[initiatedBy] = (aggregate.handoverByInitiator[initiatedBy] || 0) + 1;
+    if (conv.handoverSignalTurn != null) aggregate.handoverTurnsAtSignal.push(conv.handoverSignalTurn);
     if (aggregate.handoverRows.length < MAX_HANDOVER_ROWS) {
       aggregate.handoverRows.push({
         conversationId: conv.id,
-        handoverTime: conv.firstTime,
+        handoverTime: conv.handoverSignalTime || conv.firstTime,
         category: conv.category,
         issue: conv.issueText || conv.preview?.summary || "",
         sourceTable: conv.sourceTable || conv.preview?.sourceTable || "-",
-        reason: detectHandoverReason(conv.handoverKeyword, conv.escalated, conv.fallback, conv.repeated),
+        reason: buildHandoverReason(signals),
+        signals: signals.join(", "),
+        confidence,
+        initiatedBy,
         turns: conv.turns
       });
     }
@@ -1699,6 +1754,10 @@ function finalizeAnalysis(ctx) {
   }).sort((a, b) => b.correlationScore - a.correlationScore);
 
   const timeline = Object.entries(ctx.aggregate.timelineMap).sort((a, b) => a[0].localeCompare(b[0]));
+  const turnsArr = ctx.aggregate.handoverTurnsAtSignal;
+  const avgTurnsToHandover = turnsArr.length > 0
+    ? Math.round(turnsArr.reduce((s, v) => s + v, 0) / turnsArr.length)
+    : null;
   return {
     rowCount: ctx.rowCount,
     columns,
@@ -1714,8 +1773,11 @@ function finalizeAnalysis(ctx) {
     handoverCount: ctx.aggregate.handoverCount,
     handoverRate: toPct(ctx.aggregate.handoverCount, ctx.aggregate.totalConversations),
     resolutionRate: toPct(ctx.aggregate.resolved, ctx.aggregate.totalConversations),
+    avgTurnsToHandover,
     handoverRows: ctx.aggregate.handoverRows,
     handoverByCategory: ctx.aggregate.handoverByCategory,
+    handoverBySignal: ctx.aggregate.handoverBySignal,
+    handoverByInitiator: ctx.aggregate.handoverByInitiator,
     failureSignals: ctx.aggregate.failureSignals,
     topProblems,
     frustrationByCategory,
@@ -2067,6 +2129,43 @@ function enrichConversationPreview(preview, row, fields, text) {
   }
 }
 
+function buildHandoverSignals(conv, longUnresolved) {
+  const signals = [];
+  if (conv.escalated) signals.push("escalation");
+  if (conv.customerRequested) signals.push("customerRequest");
+  else if (conv.handoverKeyword) signals.push("keyword");
+  if (conv.failureLoop) signals.push("failureLoop");
+  else if (conv.fallback && conv.repeated) signals.push("fallbackRepeated");
+  if (longUnresolved) signals.push("longUnresolved");
+  if (conv.negative && signals.length === 0) signals.push("negativeSentiment");
+  return signals;
+}
+
+function buildHandoverReason(signals) {
+  const labels = {
+    escalation: "Escalation flag/status",
+    customerRequest: "Customer requested transfer",
+    keyword: "Handover keyword detected",
+    failureLoop: "Failure loop (3+ consecutive fallbacks)",
+    fallbackRepeated: "Repeated fallbacks + re-asked question",
+    longUnresolved: "Long unresolved conversation",
+    negativeSentiment: "Negative sentiment throughout"
+  };
+  return signals.map((s) => labels[s] || s).join("; ") || "Support transfer detected";
+}
+
+function computeHandoverConfidence(conv, longUnresolved) {
+  let score = 0;
+  if (conv.escalated) score += 40;
+  if (conv.customerRequested) score += 35;
+  else if (conv.handoverKeyword) score += 25;
+  if (conv.failureLoop) score += 20;
+  else if (conv.fallback && conv.repeated) score += 15;
+  if (longUnresolved) score += 10;
+  if (conv.negative) score += 5;
+  return Math.min(100, score);
+}
+
 function detectHandoverReason(handoverKeyword, escalated, fallback, repeated) {
   if (escalated) return "Escalation flag/status";
   if (handoverKeyword) return "Handover keyword";
@@ -2351,6 +2450,8 @@ function renderOverview() {
     byId("kpiConversations").textContent = "0";
     byId("kpiResolutionRate").textContent = "0%";
     byId("kpiHandoverRate").textContent = "0%";
+    const kpiAvg = byId("kpiAvgTurnsHandover");
+    if (kpiAvg) kpiAvg.textContent = "-";
     byId("insightsList").innerHTML = `<li>${escapeHtml(t("noDataInsights"))}</li>`;
     destroyChart("resolutionPie");
     destroyChart("volumeLine");
@@ -2360,6 +2461,8 @@ function renderOverview() {
   byId("kpiConversations").textContent = String(a.totalConversations);
   byId("kpiResolutionRate").textContent = `${a.resolutionRate}%`;
   byId("kpiHandoverRate").textContent = `${a.handoverRate}%`;
+  const kpiAvg = byId("kpiAvgTurnsHandover");
+  if (kpiAvg) kpiAvg.textContent = a.avgTurnsToHandover != null ? String(a.avgTurnsToHandover) : "-";
   drawChart("resolutionPie", "pie", {
     labels: [t("resolved"), t("unresolved")],
     datasets: [{ data: [a.statusCount.resolved, a.totalConversations - a.statusCount.resolved], backgroundColor: ["#33d17a", "#ff5f77"] }]
@@ -2376,13 +2479,23 @@ function generateInsights(dataset) {
   const a = dataset.analysis;
   const top = a.topProblems[0];
   const highestCategory = Object.entries(a.handoverByCategory).sort((x, y) => y[1] - x[1])[0];
+  const avgTurns = a.avgTurnsToHandover != null ? `Avg. ${a.avgTurnsToHandover} turns before handover.` : null;
+  const topSignal = a.handoverBySignal
+    ? Object.entries(a.handoverBySignal).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1])[0]
+    : null;
+  const customerPct = a.handoverByInitiator && a.handoverCount > 0
+    ? Math.round((a.handoverByInitiator.customer / a.handoverCount) * 100)
+    : null;
   const base = [
     `Handover rate is ${a.handoverRate}% across ${a.totalConversations.toLocaleString()} conversations.`,
     top ? `Most common problem category is "${mapIssueLabel(top.problem, a)}" with ${top.frequency.toLocaleString()} conversations.` : "No problem category signals detected yet.",
     highestCategory ? `Most handovers happen in "${mapIssueLabel(highestCategory[0], a)}".` : "No handovers detected from current signals.",
-    `Failure loops: repeated questions (${a.failureSignals.repeatedQuestions}), fallback responses (${a.failureSignals.fallbackResponses}), long unresolved chats (${a.failureSignals.longUnresolved}).`,
+    topSignal ? `Primary handover driver: ${buildHandoverReason([topSignal[0]])} (${topSignal[1].toLocaleString()}x).` : null,
+    customerPct != null ? `${customerPct}% of handovers were customer-initiated; ${100 - customerPct}% system-triggered.` : null,
+    avgTurns,
+    `Failure loops: repeated questions (${a.failureSignals.repeatedQuestions}), fallback responses (${a.failureSignals.fallbackResponses}), failure loops (${a.failureSignals.failureLoops || 0}), long unresolved (${a.failureSignals.longUnresolved}).`,
     ...(a.notes || [])
-  ];
+  ].filter(Boolean);
   if (Array.isArray(a.aiInsights) && a.aiInsights.length) return a.aiInsights.slice(0, 5);
   return base.slice(0, 5);
 }
@@ -2620,7 +2733,7 @@ function renderHandovers() {
   renderTable(
     tableWrap,
     pageRows,
-    ["conversationId", "handoverTime", "category", "issue", "sourceTable", "reason", "turns"],
+    ["conversationId", "handoverTime", "category", "issue", "sourceTable", "reason", "signals", "confidence", "initiatedBy", "turns"],
     null,
     { issue: t("handoverIssueColumn"), sourceTable: t("tableSourceTable") }
   );
@@ -2658,7 +2771,7 @@ function renderHandovers() {
     handoverExportBtn.textContent = t("exportCsvBtn");
     tableWrap.parentNode.insertBefore(handoverExportBtn, tableWrap);
   }
-  handoverExportBtn.onclick = () => { const ds = getActiveDataset(); exportToCsv(filteredRows, ["conversationId", "handoverTime", "category", "issue", "sourceTable", "reason", "turns"], `${ds?.name || "handovers"}-handovers.csv`); };
+  handoverExportBtn.onclick = () => { const ds = getActiveDataset(); exportToCsv(filteredRows, ["conversationId", "handoverTime", "category", "issue", "sourceTable", "reason", "signals", "confidence", "initiatedBy", "turns"], `${ds?.name || "handovers"}-handovers.csv`); };
 }
 
 function renderHandoverCategorySummary(rows, total) {
@@ -4251,9 +4364,12 @@ function compactDatasetForSession(dataset, rowLimit, includeRows) {
       handoverCount: analysis.handoverCount || 0,
       handoverRate: analysis.handoverRate || 0,
       resolutionRate: analysis.resolutionRate || 0,
+      avgTurnsToHandover: analysis.avgTurnsToHandover ?? null,
       handoverRows: Array.isArray(analysis.handoverRows) ? analysis.handoverRows.slice(0, 120) : [],
       handoverByCategory: analysis.handoverByCategory || {},
-      failureSignals: analysis.failureSignals || { repeatedQuestions: 0, negativeSentiment: 0, fallbackResponses: 0, longUnresolved: 0 },
+      handoverBySignal: analysis.handoverBySignal || {},
+      handoverByInitiator: analysis.handoverByInitiator || {},
+      failureSignals: analysis.failureSignals || { repeatedQuestions: 0, negativeSentiment: 0, fallbackResponses: 0, longUnresolved: 0, failureLoops: 0 },
       topProblems: Array.isArray(analysis.topProblems)
         ? analysis.topProblems.slice(0, 5).map((p) => ({
             problem: p.problem,
@@ -4289,9 +4405,12 @@ function compactDatasetForSessionTiny(dataset) {
       handoverCount: analysis.handoverCount || 0,
       handoverRate: analysis.handoverRate || 0,
       resolutionRate: analysis.resolutionRate || 0,
+      avgTurnsToHandover: analysis.avgTurnsToHandover ?? null,
       handoverRows: [],
       handoverByCategory: analysis.handoverByCategory || {},
-      failureSignals: analysis.failureSignals || { repeatedQuestions: 0, negativeSentiment: 0, fallbackResponses: 0, longUnresolved: 0 },
+      handoverBySignal: analysis.handoverBySignal || {},
+      handoverByInitiator: analysis.handoverByInitiator || {},
+      failureSignals: analysis.failureSignals || { repeatedQuestions: 0, negativeSentiment: 0, fallbackResponses: 0, longUnresolved: 0, failureLoops: 0 },
       topProblems: [],
       timeline: [],
       isLargeMode: !!analysis.isLargeMode,
