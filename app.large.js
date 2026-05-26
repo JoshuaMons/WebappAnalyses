@@ -1,4 +1,5 @@
 const STORAGE_KEY = "supportAnalyticsSessionV2";
+const DARK_MODE_KEY = "supportAnalyticsDarkModeV1";
 const PERSISTENT_STORAGE_KEY = "supportAnalyticsPersistentV1";
 const UPLOADED_DB_CACHE = {
   dbName: "supportAnalyticsUploadedDbV1",
@@ -8,24 +9,15 @@ const UPLOADED_DB_CACHE = {
 const chartStore = {};
 const SQL_JS_WASM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/";
 const DEFAULT_DB_SOURCES = [
-  "/api/live-db",
-  "/data/essent.db",
-  "/data/fontys_cgny.db",
-  "/fontys_cgny.db"
+  "/api/live-db"
 ];
-const SQLITE_TABLE_TO_TARGET = {
-  analytics: "essent cgny.csv",
-  sessions: "essent data.csv",
-  genesys: "essent genesys.csv",
-  clean_data_cgny: "essent cgny.csv",
-  clean_data_sessions: "essent data.csv"
-};
+const SQLITE_TABLE_TO_TARGET = {};
 
 function resolveTableTarget(tableName) {
   if (SQLITE_TABLE_TO_TARGET[tableName]) return SQLITE_TABLE_TO_TARGET[tableName];
   const l = tableName.toLowerCase();
-  if (/genesys|gensys/.test(l)) return "essent genesys.csv";
-  if (/cgny|cognogy|cognigy/.test(l)) return "essent cgny.csv";
+  if (/genesys|gensys/.test(l)) return "genesys";
+  if (/cgny|cognogy|cognigy/.test(l)) return "cognigy";
   // Generic chatbot/support table name patterns — return a normalized label
   if (/conversation|gesprek|conv\b/.test(l)) return "conversations";
   if (/\bmessage|bericht|utterance|turn\b/.test(l)) return "messages";
@@ -56,16 +48,12 @@ const LANGUAGE_KEY = "supportAnalyticsLanguageV1";
 const API_KEY_SESSION_KEY = "supportAnalyticsOpenAiKeySessionV1";
 const RULES_STORAGE_KEY = "supportAnalyticsRulesV1";
 const LAST_ACTIVE_TARGET_KEY = "supportAnalyticsLastActiveTargetV1";
-const TARGET_DATASET_FILES = [
-  { key: "essent cgny.csv", label: "Essent CGNY" },
-  { key: "essent data.csv", label: "Essent Data" },
-  { key: "essent genesys.csv", label: "Essent Genesys" }
-];
+const TARGET_DATASET_FILES = [];
 
-// Centralized field priority — covers Essent-specific names AND generic chatbot/support schemas.
+// Centralized field priority — covers common chatbot/support schema naming conventions.
 const DB_FIELD_PRIORITY = {
   conversationId: [
-    // Essent-specific
+    // Vendor/platform-specific names (kept as recognized patterns)
     "CGNY_SESSION_ID", "CONVERSATION_ID", "CGNY_CONVERSATION_ID",
     // Generic (case-insensitive lookup is done separately via regex)
     "conversation_id", "conversationId", "session_id", "sessionId",
@@ -76,7 +64,7 @@ const DB_FIELD_PRIORITY = {
     "id", "ID", "Id"
   ],
   userMessage: [
-    // Essent-specific
+    // Vendor/platform-specific names (kept as recognized patterns)
     "CUSTOMER_INPUT_TEXT_anonymized", "INPUTTEXT_anonymized", "UNRECOGNIZED_QUESTION_anonymized",
     // Generic
     "user_message", "userMessage", "customer_message", "customerMessage",
@@ -93,7 +81,7 @@ const DB_FIELD_PRIORITY = {
     "BOT_RESPONSE", "RESPONSE", "REPLY", "ANSWER", "ANTWOORD"
   ],
   timestamp: [
-    // Essent-specific
+    // Vendor/platform-specific names (kept as recognized patterns)
     "TIMESTAMP", "STARTEDAT",
     // Generic
     "created_at", "createdAt", "timestamp", "datetime", "time", "date",
@@ -103,7 +91,7 @@ const DB_FIELD_PRIORITY = {
     "tijdstip", "datum", "TIJDSTIP", "DATUM"
   ],
   status: [
-    // Essent-specific
+    // Vendor/platform-specific names (kept as recognized patterns)
     "GOALS", "COMPLETEDGOALSLIST",
     // Generic
     "status", "state", "outcome", "result", "resolution", "resolved",
@@ -111,7 +99,7 @@ const DB_FIELD_PRIORITY = {
     "RESOLVED", "COMPLETION", "AFHANDELING", "STATUS_CODE"
   ],
   escalationFlag: [
-    // Essent-specific
+    // Vendor/platform-specific names (kept as recognized patterns)
     "HANDOVER_QUESTION_anonymized", "GOALS", "COMPLETEDGOALSLIST",
     // Generic
     "escalation", "escalated", "escalation_flag", "escalationFlag",
@@ -120,7 +108,7 @@ const DB_FIELD_PRIORITY = {
     "ESCALATION", "HANDOVER", "TRANSFER", "ESCALATED", "HUMAN_NEEDED"
   ],
   category: [
-    // Essent-specific
+    // Vendor/platform-specific names (kept as recognized patterns)
     "MAIN_INTENT", "INTENT", "ENDPOINTNAME", "ISSUE_CATEGORY", "CATEGORY",
     // Generic
     "category", "intent", "topic", "issue", "type", "label", "subject",
@@ -140,7 +128,7 @@ const DB_FIELD_PRIORITY = {
     "HANDOVER_REASON", "ESCALATION_REASON"
   ],
   issueText: [
-    // Essent-specific
+    // Vendor/platform-specific names (kept as recognized patterns)
     "HANDOVER_QUESTION_anonymized", "CUSTOMER_INPUT_TEXT_anonymized",
     "INPUTTEXT_anonymized", "UNRECOGNIZED_QUESTION_anonymized",
     // Generic
@@ -151,12 +139,12 @@ const DB_FIELD_PRIORITY = {
   ]
 };
 
-// Rules used by the dedicated MAIN_INTENT handover tab.
+// Default fallbacks for the intent handover tab when auto-detection finds nothing.
 const INTENT_HANDOVER_CONFIG = {
-  mainIntentColumn: "MAIN_INTENT",
-  contactIdColumn: "CONTACTID",
-  sessionIdColumns: ["CGNY_SESSION_ID", "CGNY_CONVERSATION_ID"],
-  timestampColumn: "TIMESTAMP"
+  mainIntentColumn: "category",
+  contactIdColumn: "contactId",
+  sessionIdColumns: ["conversation_id", "session_id"],
+  timestampColumn: "timestamp"
 };
 
 function buildIntentHandoverConfig(columns) {
@@ -244,16 +232,19 @@ const ISSUE_STOPWORDS = new Set([
 
 const KNOWN_ISSUE_CATEGORIES = new Set([
   "billing",
-  "meter readings",
+  "payment",
   "contract",
-  "tariffs",
-  "advance amount",
-  "move",
+  "account",
   "login",
   "outage",
-  "solar panels",
   "technical",
-  "order"
+  "order",
+  "shipping",
+  "return",
+  "complaint",
+  "subscription",
+  "cancellation",
+  "refund"
 ]);
 
 const I18N = {
@@ -264,7 +255,6 @@ const I18N = {
     quickSwapBtn: "Quick Swap Dataset",
     quickSwapChooseLabel: "Choose dataset...",
     targetFilesTitle: "Target files",
-    targetFilesHint: "Only these 3 files are analyzed in Essent mode.",
     uploadLabel: "Upload database (.db)",
     analyzeUploadBtn: "Analyze Upload",
     aiToggle: "Enable AI-powered analysis (OpenAI GPT-4o)",
@@ -361,7 +351,6 @@ const I18N = {
     datasetSummaryTable: "Dataset Summary Table",
     compareSelectionTitle: "Comparison Selection",
     compareModeLabel: "Mode",
-    compareModeAll3: "All 3 datasets",
     compareModePair: "Choose 2 datasets",
     compareLeftLabel: "Dataset A",
     compareRightLabel: "Dataset B",
@@ -376,7 +365,7 @@ const I18N = {
     dbUploadCurrent: "Currently loaded source: {name} ({rows} rows)",
     dbUploadNoDataset: "No uploaded database loaded yet.",
     statusSelectDataset: "Select at least one dataset file.",
-    statusQuickSwapNoDataset: "Upload at least one Essent dataset first.",
+    statusQuickSwapNoDataset: "Upload at least one dataset first.",
     statusQuickSwapDone: "Switched to: {name}.",
     statusNeedDbFile: "Select a .db database file.",
     statusNoValidFiles: "No valid database selected.",
@@ -450,7 +439,132 @@ const I18N = {
     problemSortNameAsc: "Name A-Z",
     problemSortNameDesc: "Name Z-A",
     closeBtn: "Close",
-    problemDetailTitle: "Conversation Detail"
+    problemDetailTitle: "Conversation Detail",
+    compareModeAll: "All datasets",
+    tabFrustration: "Frustration & Handovers",
+    frustrationTitle: "Frustration & Handover Correlation",
+    frustrationSubtitle: "Per category: how many frustration signals (negative, fallback, repeated, long unresolved) and how does that relate to handovers? The correlation score combines both (60% frustration%, 40% handover%). Red = high risk.",
+    frustrationMinVolumeLabel: "Min. volume",
+    frustrationSignalLabel: "Signal",
+    frustrationSortLabel: "Sort by",
+    frustrationSignalAll: "All signals",
+    frustrationSignalNegative: "Negative sentiment",
+    frustrationSignalFallback: "Fallback (bot didn’t understand)",
+    frustrationSignalRepeated: "Repeated questions",
+    frustrationSignalHandover: "Had a handover",
+    frustrationSortCorrelation: "Correlation score (high→low)",
+    frustrationSortFrustrationPct: "Frustration %",
+    frustrationSortHandoverPct: "Handover %",
+    frustrationSortVolume: "Volume",
+    frustrationSortHandoverCount: "Number of handovers",
+    frustrationBubbleTitle: "Frustration % vs Handover % per category",
+    frustrationBubbleSubtitle: "Circle size = volume. Red = high risk, orange = medium, green = low.",
+    frustrationRankedTitle: "Categories ranked by risk",
+    frustrationNoData: "No categories found with current filters.",
+    riskHigh: "High risk",
+    riskMedium: "Medium",
+    riskLow: "Low",
+    colCategory: "Category",
+    colVolume: "Volume",
+    colNegative: "Negative",
+    colFallback: "Fallback",
+    colRepeated: "Repeated",
+    colLongOpen: "Long open",
+    colHandovers: "Handovers",
+    colHandoverPct: "Handover %",
+    colFrustrationPct: "Frustration %",
+    colCorrelationScore: "Correlation score",
+    colRisk: "Risk",
+    hscAnalysisLabel: "Handover Analysis",
+    hscTabOverview: "Overview",
+    hscTabConversations: "Conversations",
+    hscTabSignals: "Signal Analysis",
+    hscTabTimeline: "Timeline",
+    hscStatHandovers: "Handovers",
+    hscStatShare: "Share",
+    hscStatAvgTurns: "Avg. turns",
+    hscStatFirstHandover: "First handover",
+    hscStatLastHandover: "Last handover",
+    hscStatSources: "Data sources",
+    hscSignalsTitle: "Handover signals",
+    hscSourceTitle: "Source per table",
+    hscTopIssuesTitle: "Top issues (frequency)",
+    hscTopIssuesEmpty: "No issue data.",
+    hscSignalsEmpty: "No signal data.",
+    hscEnrichedNote: "Enriched with {n} columns from database ({m} conversations found in stored rows).",
+    hscNoConversations: "No conversations.",
+    hscMoreRows: "{n} additional rows not shown.",
+    hscReasonKeyword: "Handover keyword",
+    hscReasonEscalated: "Escalated",
+    hscReasonFallbackRepeated: "Fallback + repeated",
+    hscReasonUnknown: "Unknown",
+    hscCausesTitle: "Handover causes",
+    hscLongestTitle: "Top 10 longest conversations",
+    hscTimelineTitle: "Handovers per day",
+    hscTimelineEmpty: "No timestamp data available.",
+    hscClickDetails: "Click for details ›",
+    hscCategoryNotFound: "No data found for this category. Try refreshing.",
+    hscConvHeader: "ID",
+    hscTimeHeader: "Time",
+    hscReasonHeader: "Reason",
+    hscTurnsHeader: "Turns",
+    hscIssueHeader: "Issue",
+    hscSourceHeader: "Source",
+    hscConvIdHeader: "Conversation ID",
+    hscSignalHeader: "Signal",
+    hscCountHeader: "Count",
+    hscPctHeader: "%",
+    hscProblemHeader: "Issue",
+    ihKpiTotalLabel: "Handover rows found",
+    ihKpiDatasetsLabel: "Datasets searched",
+    ihKpiConversationsLabel: "Unique conversations",
+    ihAllDatasetsLabel: "All datasets combined ({n})",
+    ihAllTablesOption: "All tables",
+    ihAllCategoriesOption: "All categories",
+    ihSearchLabel: "Search",
+    ihSourceLabel: "Source",
+    ihCategoryLabel: "Category",
+    ihDatasetLabel: "Dataset",
+    ihRowsTitle: "Handover rows",
+    ihNoDatasets: "No datasets loaded. Upload a database first via the Database Upload tab.",
+    ihNoHandoversFound: "No handover rows found",
+    ihNoHandoversHint: "Detected signals: text-intent (handover, escalation, transfer…), boolean flags (is_handover=1) and handover reason FKs (handover_reason_id≠null).",
+    ihNoHandoversDatasets: "Searched dataset(s):",
+    ihNoHandoversChoose: "Choose a different dataset or verify the correct table is loaded.",
+    ihSummaryText: "{shown} of {total} handover rows",
+    ihPageInfo: "Page {page} of {total}",
+    ihNoResults: "No rows found for this search.",
+    dbLoadingTitle: "Loading database…",
+    dbLoadingWait: "Please wait, this may take a while.",
+    dbLoadingHint: "The browser processes large files all at once. The page will respond again once analysis is complete.",
+    overlayReadingFile: "Reading file: {name}…",
+    overlayReloadingDb: "Reloading previous database: {name}…",
+    largeFileWarning: "This file is {mb} MB. Loading in the browser may take 30 seconds to several minutes and temporarily freeze the tab.\n\nContinue?",
+    exportCsvBtn: "Export CSV",
+    notSavedHint: "Not saved — re-upload each session",
+    targetFilesHint: "Only matching tables are analyzed from the uploaded database.",
+    hscDateHeader: "Date",
+    hscCopyHint: "Click to copy",
+    frustrationSignalLongOpen: "Long unresolved",
+    ihRowsSuffix: "rows",
+    ihColsCount: "{n} columns",
+    ihCatColLabel: "category column",
+    ihFlagColsLabel: "flag columns",
+    ihFkColLabel: "handover FK",
+    ihNoSignals: "no handover signals detected",
+    darkModeLabel: "Dark mode",
+    lightModeLabel: "Light mode",
+    exportChartLabel: "Export PNG",
+    confirmTitle: "Confirm",
+    confirmBtn: "Confirm",
+    cancelBtn: "Cancel",
+    intentHandoverSearchPlaceholder: "Search by ID, contact, category or source...",
+    aiToggle: "Enable AI analysis (Claude)",
+    openAiKeyPlaceholder: "Anthropic API Key (optional if AI is off)",
+    aiNeedKey: "Enter an Anthropic API key to run AI enrichment.",
+    aiRunning: "Running Claude AI enrichment...",
+    aiNetworkHelp: "Network error. If deployed on Vercel, set ANTHROPIC_API_KEY and use the same-origin /api/ai-enrich endpoint.",
+    aiKeySecurityNote: "API key is stored in browser session only and never sent to our servers."
   },
   nl: {
     appTitle: "Support Analyse Dashboard",
@@ -459,7 +573,6 @@ const I18N = {
     quickSwapBtn: "Snel wisselen dataset",
     quickSwapChooseLabel: "Kies dataset...",
     targetFilesTitle: "Doelbestanden",
-    targetFilesHint: "Alleen deze 3 bestanden worden geanalyseerd in Essent-modus.",
     uploadLabel: "Upload database (.db)",
     analyzeUploadBtn: "Upload analyseren",
     aiToggle: "AI-analyse inschakelen (OpenAI GPT-4o)",
@@ -556,7 +669,6 @@ const I18N = {
     datasetSummaryTable: "Dataset samenvattingstabel",
     compareSelectionTitle: "Vergelijkingsselectie",
     compareModeLabel: "Modus",
-    compareModeAll3: "Alle 3 datasets",
     compareModePair: "Kies 2 datasets",
     compareLeftLabel: "Dataset A",
     compareRightLabel: "Dataset B",
@@ -571,7 +683,7 @@ const I18N = {
     dbUploadCurrent: "Huidige geladen bron: {name} ({rows} rijen)",
     dbUploadNoDataset: "Nog geen geuploade database geladen.",
     statusSelectDataset: "Selecteer minimaal één datasetbestand.",
-    statusQuickSwapNoDataset: "Upload eerst minimaal één Essent-dataset.",
+    statusQuickSwapNoDataset: "Upload eerst minimaal één dataset.",
     statusQuickSwapDone: "Gewisseld naar: {name}.",
     statusNeedDbFile: "Selecteer een .db databasebestand.",
     statusNoValidFiles: "Geen geldige database geselecteerd.",
@@ -645,7 +757,132 @@ const I18N = {
     problemSortNameAsc: "Naam A-Z",
     problemSortNameDesc: "Naam Z-A",
     closeBtn: "Sluiten",
-    problemDetailTitle: "Gespreksdetail"
+    problemDetailTitle: "Gespreksdetail",
+    compareModeAll: "Alle datasets",
+    tabFrustration: "Frustratie & Handovers",
+    frustrationTitle: "Frustratie & Handover Correlatie",
+    frustrationSubtitle: "Per categorie: hoeveel frustratie-signalen (negatief, fallback, herhalingen, lang onopgelost) en hoe verhoudt dat zich tot het aantal handovers? De correlatie score combineert beide (60% frustratie%, 40% handover%). Rood = hoog risico.",
+    frustrationMinVolumeLabel: "Min. volume",
+    frustrationSignalLabel: "Signaal",
+    frustrationSortLabel: "Sorteer op",
+    frustrationSignalAll: "Alle signalen",
+    frustrationSignalNegative: "Negatief sentiment",
+    frustrationSignalFallback: "Fallback (bot begreep niet)",
+    frustrationSignalRepeated: "Herhaalde vragen",
+    frustrationSignalHandover: "Heeft handover gehad",
+    frustrationSortCorrelation: "Correlatie score (hoog→laag)",
+    frustrationSortFrustrationPct: "Frustratie %",
+    frustrationSortHandoverPct: "Handover %",
+    frustrationSortVolume: "Volume",
+    frustrationSortHandoverCount: "Aantal handovers",
+    frustrationBubbleTitle: "Frustratie % vs Handover % per categorie",
+    frustrationBubbleSubtitle: "Grootte van de cirkel = volume. Rood = hoog risico, oranje = gemiddeld, groen = laag.",
+    frustrationRankedTitle: "Categorieën gerangschikt op risico",
+    frustrationNoData: "Geen categorieën gevonden met de huidige filters.",
+    riskHigh: "Hoog risico",
+    riskMedium: "Gemiddeld",
+    riskLow: "Laag",
+    colCategory: "Categorie",
+    colVolume: "Volume",
+    colNegative: "Negatief",
+    colFallback: "Fallback",
+    colRepeated: "Herhaald",
+    colLongOpen: "Lang open",
+    colHandovers: "Handovers",
+    colHandoverPct: "Handover %",
+    colFrustrationPct: "Frustratie %",
+    colCorrelationScore: "Correlatie score",
+    colRisk: "Risico",
+    hscAnalysisLabel: "Overdrachtsanalyse",
+    hscTabOverview: "Overzicht",
+    hscTabConversations: "Gesprekken",
+    hscTabSignals: "Signaalanalyse",
+    hscTabTimeline: "Tijdlijn",
+    hscStatHandovers: "Overdrachten",
+    hscStatShare: "Aandeel",
+    hscStatAvgTurns: "Gem. beurten",
+    hscStatFirstHandover: "Eerste overdracht",
+    hscStatLastHandover: "Laatste overdracht",
+    hscStatSources: "Databronnen",
+    hscSignalsTitle: "Overdrachtssignalen",
+    hscSourceTitle: "Bron per tabel",
+    hscTopIssuesTitle: "Top problemen (frequentie)",
+    hscTopIssuesEmpty: "Geen probleemdata.",
+    hscSignalsEmpty: "Geen signaaldata.",
+    hscEnrichedNote: "Aangevuld met {n} kolommen uit de database ({m} gesprekken gevonden in opgeslagen rijen).",
+    hscNoConversations: "Geen gesprekken.",
+    hscMoreRows: "{n} extra rijen niet getoond.",
+    hscReasonKeyword: "Handover keyword",
+    hscReasonEscalated: "Geëscaleerd",
+    hscReasonFallbackRepeated: "Fallback + herhaling",
+    hscReasonUnknown: "Onbekend",
+    hscCausesTitle: "Overdrachtsoorzaken",
+    hscLongestTitle: "Top 10 langste gesprekken",
+    hscTimelineTitle: "Overdrachten per dag",
+    hscTimelineEmpty: "Geen tijdstempeldata beschikbaar.",
+    hscClickDetails: "Klik voor details ›",
+    hscCategoryNotFound: "Geen data gevonden voor deze categorie. Probeer de pagina te vernieuwen.",
+    hscConvHeader: "ID",
+    hscTimeHeader: "Tijdstip",
+    hscReasonHeader: "Reden",
+    hscTurnsHeader: "Beurten",
+    hscIssueHeader: "Probleem",
+    hscSourceHeader: "Bron",
+    hscConvIdHeader: "Gesprek ID",
+    hscSignalHeader: "Signaal",
+    hscCountHeader: "Aantal",
+    hscPctHeader: "%",
+    hscProblemHeader: "Probleem",
+    ihKpiTotalLabel: "Handover-rijen gevonden",
+    ihKpiDatasetsLabel: "Datasets doorzocht",
+    ihKpiConversationsLabel: "Unieke gesprekken",
+    ihAllDatasetsLabel: "Alle datasets gecombineerd ({n})",
+    ihAllTablesOption: "Alle tabellen",
+    ihAllCategoriesOption: "Alle categorieën",
+    ihSearchLabel: "Zoeken",
+    ihSourceLabel: "Bron",
+    ihCategoryLabel: "Categorie",
+    ihDatasetLabel: "Dataset",
+    ihRowsTitle: "Handover-rijen",
+    ihNoDatasets: "Geen datasets geladen. Upload eerst een database via het tabblad Database Upload.",
+    ihNoHandoversFound: "Geen handover-rijen gevonden",
+    ihNoHandoversHint: "Gedetecteerde signalen: tekst-intent (handover, escalatie, transfer…), boolean vlaggen (is_handover=1) en handover-reden FK’s (handover_reason_id≠null).",
+    ihNoHandoversDatasets: "Doorzochte dataset(s):",
+    ihNoHandoversChoose: "Kies een andere dataset of controleer of de juiste tabel is geladen.",
+    ihSummaryText: "{shown} van {total} handover-rijen",
+    ihPageInfo: "Pagina {page} van {total}",
+    ihNoResults: "Geen rijen gevonden voor deze zoekopdracht.",
+    dbLoadingTitle: "Database laden…",
+    dbLoadingWait: "Even geduld, dit kan even duren.",
+    dbLoadingHint: "De browser verwerkt grote bestanden in één keer. De pagina reageert weer zodra de analyse klaar is.",
+    overlayReadingFile: "Bestand lezen: {name}…",
+    overlayReloadingDb: "Vorige database herladen: {name}…",
+    largeFileWarning: "Dit bestand is {mb} MB groot. Het laden in de browser kan 30 seconden tot meerdere minuten duren en de pagina tijdelijk onresponsief maken.\n\nDoorgaan?",
+    exportCsvBtn: "Exporteer CSV",
+    notSavedHint: "Niet opgeslagen — upload elke sessie opnieuw",
+    targetFilesHint: "Alle tabellen uit de geüploade database worden geanalyseerd.",
+    hscDateHeader: "Datum",
+    hscCopyHint: "Klik om te kopiëren",
+    frustrationSignalLongOpen: "Lang onopgelost",
+    ihRowsSuffix: "rijen",
+    ihColsCount: "{n} kolommen",
+    ihCatColLabel: "categorie-kolom",
+    ihFlagColsLabel: "vlag-kolommen",
+    ihFkColLabel: "handover-FK",
+    ihNoSignals: "geen handover-signalen herkend",
+    darkModeLabel: "Donkere modus",
+    lightModeLabel: "Lichte modus",
+    exportChartLabel: "Exporteer PNG",
+    confirmTitle: "Bevestigen",
+    confirmBtn: "Bevestigen",
+    cancelBtn: "Annuleren",
+    intentHandoverSearchPlaceholder: "Zoek op ID, contact, categorie of bron...",
+    aiToggle: "AI-analyse inschakelen (Claude)",
+    openAiKeyPlaceholder: "Anthropic API-sleutel (optioneel als AI uit staat)",
+    aiNeedKey: "Voer een Anthropic API-sleutel in om AI-verrijking te starten.",
+    aiRunning: "Claude AI-verrijking wordt uitgevoerd...",
+    aiNetworkHelp: "Netwerkfout. Bij Vercel: zet ANTHROPIC_API_KEY en gebruik dezelfde-origin /api/ai-enrich endpoint.",
+    aiKeySecurityNote: "API-sleutel wordt alleen in de browsersessie opgeslagen en nooit naar onze servers verzonden."
   }
 };
 
@@ -690,7 +927,7 @@ const state = {
   intentHandoverModalItems: [],
   problemModalItems: [],
   comparison: {
-    mode: "all3",
+    mode: "all",
     left: "",
     right: ""
   },
@@ -717,6 +954,7 @@ async function init() {
   loadSession();
   state.language = loadLanguage();
   loadRules();
+  applyDarkMode(loadDarkMode());
   bindEvents();
   applyTranslations();
   hydrateApiKeyInput();
@@ -912,7 +1150,7 @@ function bindEvents() {
     }
   });
   on("compareModeSelect", "change", (e) => {
-    state.comparison.mode = e.target.value === "pair" ? "pair" : "all3";
+    state.comparison.mode = e.target.value === "pair" ? "pair" : "all";
     saveSession();
     renderComparisonSelectors();
     renderComparison();
@@ -926,6 +1164,37 @@ function bindEvents() {
     state.comparison.right = e.target.value || "";
     saveSession();
     renderComparison();
+  });
+
+  // Dark mode toggle
+  on("darkModeToggle", "click", toggleDarkMode);
+
+  // Confirm modal buttons
+  on("confirmModalOkBtn", "click", () => closeConfirmModal(true));
+  on("confirmModalCancelBtn", "click", () => closeConfirmModal(false));
+  on("confirmModalBackdrop", "click", () => closeConfirmModal(false));
+
+  // CSV export buttons
+  on("exportDataTableCsvBtn", "click", exportActiveDataTableCsv);
+  on("exportHandoversCsvBtn", "click", exportHandoversCsv);
+  on("exportIntentHandoverCsvBtn", "click", exportIntentHandoversCsv);
+
+  // Keyboard shortcuts: Alt+1..9 for tabs, Escape closes confirm modal
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && byId("confirmModal") && !byId("confirmModal").hidden) {
+      closeConfirmModal(false);
+      return;
+    }
+    if (!e.altKey || e.shiftKey || e.ctrlKey || e.metaKey) return;
+    const TAB_IDS = [
+      "overviewTab", "dataExplorerTab", "handoversTab", "intentHandoversTab",
+      "problemsTab", "frustrationTab", "aiAnalysisTab", "rulesTab", "comparisonTab"
+    ];
+    const idx = Number(e.key) - 1;
+    if (idx >= 0 && idx < TAB_IDS.length && !byId("dashboardMain")?.hidden) {
+      e.preventDefault();
+      activateTab(TAB_IDS[idx]);
+    }
   });
 }
 
@@ -1013,13 +1282,13 @@ function activateTab(tabId) {
   renderActiveTab(state.activeTabId);
 }
 
-function clearData() {
-  const ok = window.confirm(t("clearConfirm"));
+async function clearData() {
+  const ok = await showConfirm(t("clearConfirm"));
   if (!ok) return;
   state.datasets = [];
   state.unifiedDataset = null;
   state.activeDatasetId = null;
-  state.comparison = { mode: "all3", left: "", right: "" };
+  state.comparison = { mode: "all", left: "", right: "" };
   state.table.page = 1;
   try {
     sessionStorage.removeItem(STORAGE_KEY);
@@ -1056,15 +1325,13 @@ async function handleDbUpload(inputId = "dbUploadInput") {
   const LARGE_FILE_WARN_BYTES = 150 * 1024 * 1024; // 150 MB
   if (file.size > LARGE_FILE_WARN_BYTES) {
     const sizeMb = Math.round(file.size / (1024 * 1024));
-    const ok = window.confirm(
-      `Dit bestand is ${sizeMb} MB groot. Het laden in de browser kan 30 seconden tot meerdere minuten duren en de pagina tijdelijk onresponsief maken.\n\nDoorgaan?`
-    );
+    const ok = await showConfirm(t("largeFileWarning", { mb: sizeMb }));
     if (!ok) return;
   }
 
   setStatus(t("statusAnalyzingFile", { name: file.name }));
   try {
-    showDbLoadingOverlay(`Bestand lezen: ${file.name}…`);
+    showDbLoadingOverlay(t("overlayReadingFile", { name: file.name }));
     const bytes = await readFileWithProgress(file);
     const sqliteError = detectInvalidSqliteBuffer(bytes);
     if (sqliteError) {
@@ -1815,17 +2082,18 @@ function normalizeSentence(value) {
 function categorizeIssue(text) {
   const haystack = normalizeCategoryValue(text);
   const rules = [
-    { key: "billing", pattern: /\b(bill|billing|invoice|factuur|facturen|payment|betaling|betaal|charged|refund|terugbetaling|incasso|price|prijs|kosten|subscription)\b/ },
-    { key: "meter readings", pattern: /\b(meterstand|meterstanden|meter reading|meter readings|slimme meter|meterkast|verbruik|usage|consumption)\b/ },
-    { key: "contract", pattern: /\b(contract|aanmelding|afmelding|opzeg|opzeggen|verlengen|verlenging|leverancier|switch|overstap|aansluiting)\b/ },
-    { key: "tariffs", pattern: /\b(tarief|tarieven|rate|rates|prijsplafond|energieprijs|stroomprijs|gasprijs|vast|variabel)\b/ },
-    { key: "advance amount", pattern: /\b(voorschot|termijnbedrag|maandbedrag|monthly amount|advance)\b/ },
-    { key: "move", pattern: /\b(verhuis|verhuizing|moving|move|adreswijziging|nieuw adres)\b/ },
-    { key: "login", pattern: /\b(login|inloggen|sign in|password|wachtwoord|otp|2fa|authentication|locked out|account)\b/ },
-    { key: "outage", pattern: /\b(storing|outage|geen stroom|geen gas|stroomstoring|gasstoring|not working|broken)\b/ },
-    { key: "solar panels", pattern: /\b(zonnepaneel|zonnepanelen|solar|teruglever|teruglevering|salderen)\b/ },
-    { key: "technical", pattern: /\b(error|fout|bug|crash|timeout|api|technisch|technical)\b/ },
-    { key: "order", pattern: /\b(order|bestelling|cancel|annuleer|return|exchange|item)\b/ }
+    { key: "billing", pattern: /\b(bill|billing|invoice|factuur|facturen|payment|betaling|betaal|charged|incasso|kosten|subscription)\b/ },
+    { key: "refund", pattern: /\b(refund|terugbetaling|terugstorten|terugstorting|money back|geld terug)\b/ },
+    { key: "contract", pattern: /\b(contract|aanmelding|afmelding|opzeg|opzeggen|verlengen|verlenging|switch|overstap|cancell)\b/ },
+    { key: "account", pattern: /\b(account|profiel|profile|gegevens|settings|instellingen)\b/ },
+    { key: "login", pattern: /\b(login|inloggen|sign in|sign up|password|wachtwoord|otp|2fa|authentication|locked out|toegang)\b/ },
+    { key: "outage", pattern: /\b(storing|outage|down|unavailable|niet beschikbaar|not working|broken|kapot|defect)\b/ },
+    { key: "shipping", pattern: /\b(shipping|shipment|verzending|levering|delivery|bezorging|track|pakket|package)\b/ },
+    { key: "return", pattern: /\b(return|retour|terugsturen|ruilen|exchange|omruilen)\b/ },
+    { key: "order", pattern: /\b(order|bestelling|aankoop|purchase|bought|gekocht|item|product)\b/ },
+    { key: "complaint", pattern: /\b(complaint|klacht|klagen|ontevreden|dissatisfied|feedback|escalat)\b/ },
+    { key: "technical", pattern: /\b(error|fout|bug|crash|timeout|api|technisch|technical|glitch|issue)\b/ },
+    { key: "subscription", pattern: /\b(subscription|abonnement|plan|upgrade|downgrade|tier|premium)\b/ }
   ];
   const hit = rules.find((rule) => rule.pattern.test(haystack));
   return hit ? hit.key : "other";
@@ -1866,7 +2134,7 @@ async function requestAiEnrichment(payload, apiKey) {
   const proxyResponse = await fetch("/api/ai-enrich", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload, model: "gpt-4o", apiKey })
+    body: JSON.stringify({ payload, apiKey })
   }).catch(() => null);
 
   if (proxyResponse && proxyResponse.ok) {
@@ -1878,21 +2146,24 @@ async function requestAiEnrichment(payload, apiKey) {
     throw new Error(`AI proxy error ${proxyResponse.status}${proxyText ? `: ${proxyText.slice(0, 160)}` : ""}`);
   }
 
-  const directResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+  // Direct fallback: call Anthropic API from the browser
+  const directResponse = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01"
+    },
     body: JSON.stringify({
-      model: "gpt-4o",
-      temperature: 0.2,
+      model: "claude-sonnet-4-6",
       max_tokens: 1200,
-      response_format: { type: "json_object" },
+      system: "You are a support analytics assistant. Output valid JSON only with keys: insights (array of strings), issue_labels (object).",
       messages: [
-        { role: "system", content: "You are a support analytics assistant. Output valid JSON only." },
         { role: "user", content: `Return strict JSON with keys: insights (array), issue_labels (object). Input: ${JSON.stringify(payload)}` }
       ]
     })
   });
-  if (!directResponse.ok) throw new Error(`OpenAI API error ${directResponse.status}`);
+  if (!directResponse.ok) throw new Error(`Claude API error ${directResponse.status}`);
   return directResponse.json();
 }
 
@@ -1948,39 +2219,32 @@ function renderComparisonSelectors() {
   const rightSel = byId("compareRightSelect");
   if (!modeSel || !leftSel || !rightSel) return;
 
-  modeSel.value = state.comparison.mode === "pair" ? "pair" : "all3";
-  const loadedTargets = TARGET_DATASET_FILES
-    .map((target) => ({
-      ...target,
-      dataset: state.datasets.find((d) => d.targetKey === target.key)
-    }))
-    .filter((x) => x.dataset);
+  modeSel.value = state.comparison.mode === "pair" ? "pair" : "all";
 
   leftSel.innerHTML = "";
   rightSel.innerHTML = "";
-  loadedTargets.forEach((item) => {
+  state.datasets.forEach((d) => {
+    const label = d.targetLabel || d.name || d.id;
     const leftOpt = document.createElement("option");
-    leftOpt.value = item.dataset.id;
-    leftOpt.textContent = item.label;
+    leftOpt.value = d.id;
+    leftOpt.textContent = label;
     leftSel.appendChild(leftOpt);
     const rightOpt = document.createElement("option");
-    rightOpt.value = item.dataset.id;
-    rightOpt.textContent = item.label;
+    rightOpt.value = d.id;
+    rightOpt.textContent = label;
     rightSel.appendChild(rightOpt);
   });
 
-  if (!loadedTargets.length) {
-    return;
-  }
+  if (!state.datasets.length) return;
 
-  if (!state.comparison.left || !loadedTargets.some((x) => x.dataset.id === state.comparison.left)) {
-    state.comparison.left = loadedTargets[0].dataset.id;
+  if (!state.comparison.left || !state.datasets.some((d) => d.id === state.comparison.left)) {
+    state.comparison.left = state.datasets[0].id;
   }
-  if (!state.comparison.right || !loadedTargets.some((x) => x.dataset.id === state.comparison.right)) {
-    state.comparison.right = loadedTargets[Math.min(1, loadedTargets.length - 1)].dataset.id;
+  if (!state.comparison.right || !state.datasets.some((d) => d.id === state.comparison.right)) {
+    state.comparison.right = state.datasets[Math.min(1, state.datasets.length - 1)].id;
   }
-  if (state.comparison.left === state.comparison.right && loadedTargets.length > 1) {
-    state.comparison.right = loadedTargets.find((x) => x.dataset.id !== state.comparison.left).dataset.id;
+  if (state.comparison.left === state.comparison.right && state.datasets.length > 1) {
+    state.comparison.right = state.datasets.find((d) => d.id !== state.comparison.left).id;
   }
 
   leftSel.value = state.comparison.left;
@@ -2005,8 +2269,14 @@ function getTargetOrder(targetKey) {
 }
 
 function getComparisonDatasets() {
-  const unified = getActiveDataset();
-  return unified ? [unified] : [];
+  const datasets = state.datasets;
+  if (!datasets.length) return [];
+  if (state.comparison.mode === "pair") {
+    const left = datasets.find((d) => d.id === state.comparison.left);
+    const right = datasets.find((d) => d.id === state.comparison.right);
+    return [left, right].filter(Boolean);
+  }
+  return datasets.length > 1 ? datasets : (state.unifiedDataset ? [state.unifiedDataset] : datasets);
 }
 
 function renderAll() {
@@ -2206,6 +2476,16 @@ function renderDataTable() {
   });
   const suffix = dataset.analysis.previewOnly ? ` (preview ${rows.length.toLocaleString()}/${dataset.analysis.rowCount.toLocaleString()} rows)` : "";
   pageInfoEl.textContent = `Page ${state.table.page}/${totalPages} (${filtered.length.toLocaleString()} matched rows)${suffix}`;
+
+  let exportBtn = byId("dataTableExportBtn");
+  if (!exportBtn) {
+    exportBtn = document.createElement("button");
+    exportBtn.id = "dataTableExportBtn";
+    exportBtn.className = "btn";
+    exportBtn.textContent = t("exportCsvBtn");
+    pageInfoEl.parentNode.insertBefore(exportBtn, pageInfoEl.nextSibling);
+  }
+  exportBtn.onclick = () => exportToCsv(filtered, keys, `${dataset.name || "data"}.csv`);
 }
 
 function renderHandovers() {
@@ -2369,6 +2649,16 @@ function renderHandovers() {
       total: rows.length.toLocaleString()
     });
   }
+
+  let handoverExportBtn = byId("handoverExportBtn");
+  if (!handoverExportBtn) {
+    handoverExportBtn = document.createElement("button");
+    handoverExportBtn.id = "handoverExportBtn";
+    handoverExportBtn.className = "btn";
+    handoverExportBtn.textContent = t("exportCsvBtn");
+    tableWrap.parentNode.insertBefore(handoverExportBtn, tableWrap);
+  }
+  handoverExportBtn.onclick = () => { const ds = getActiveDataset(); exportToCsv(filteredRows, ["conversationId", "handoverTime", "category", "issue", "sourceTable", "reason", "turns"], `${ds?.name || "handovers"}-handovers.csv`); };
 }
 
 function renderHandoverCategorySummary(rows, total) {
@@ -2397,7 +2687,7 @@ function renderHandoverCategorySummary(rows, total) {
     const catKey = encodeURIComponent(item.category);
     const topReason = Object.entries(item.reasons).sort((a, b) => b[1] - a[1])[0];
     const reasonLabel = topReason ? (() => {
-      const lbl = { keyword: "Handover keyword", escalated: "Geëscaleerd", "fallback+repeated": "Fallback + herhaling", unknown: "Onbekend" };
+      const lbl = { keyword: t("hscReasonKeyword"), escalated: t("hscReasonEscalated"), "fallback+repeated": t("hscReasonFallbackRepeated"), unknown: t("hscReasonUnknown") };
       return lbl[topReason[0]] || topReason[0];
     })() : "";
     const reasonChip = reasonLabel
@@ -2414,7 +2704,7 @@ function renderHandoverCategorySummary(rows, total) {
         </div>
         ${reasonChip}
         <ul>${examples}</ul>
-        <div class="hsc-open-hint">Klik voor details ›</div>
+        <div class="hsc-open-hint">${escapeHtml(t("hscClickDetails"))}</div>
       </article>`;
   }).join("");
 
@@ -2439,9 +2729,8 @@ function openHandoverCategoryModal(encodedCategory) {
   const backdrop = byId("hscModalBackdrop");
   if (!modal || !backdrop) return;
   if (!item) {
-    // Category not found — show a diagnostic instead of silently doing nothing
     byId("hscModalTitle").textContent = decodeURIComponent(encodedCategory);
-    byId("hscModalBody").innerHTML = `<p class="muted" style="padding:1.5rem;">Geen data gevonden voor deze categorie. Probeer de pagina te vernieuwen.</p>`;
+    byId("hscModalBody").innerHTML = `<p class="muted" style="padding:1.5rem;">${escapeHtml(t("hscCategoryNotFound"))}</p>`;
     backdrop.hidden = false;
     modal.hidden = false;
     return;
@@ -2449,7 +2738,7 @@ function openHandoverCategoryModal(encodedCategory) {
 
   const pct = total ? `${toPct(item.count, total)}%` : "0%";
   const reasonEntries = Object.entries(item.reasons).sort((a, b) => b[1] - a[1]);
-  const reasonLabels = { keyword: "Handover keyword", escalated: "Geëscaleerd", "fallback+repeated": "Fallback + herhaling", unknown: "Onbekend" };
+  const reasonLabels = { keyword: t("hscReasonKeyword"), escalated: t("hscReasonEscalated"), "fallback+repeated": t("hscReasonFallbackRepeated"), unknown: t("hscReasonUnknown") };
 
   // Try to enrich with raw dataset rows matched by conversationId
   const activeDataset = getActiveDataset();
@@ -2513,8 +2802,8 @@ function openHandoverCategoryModal(encodedCategory) {
   const displayRows = item.rows.slice(0, 200);
   const rawEnriched = displayRows.some((r) => rawByConvId[String(r.conversationId || "")]);
   const convTableHeaders = rawEnriched && rawColList.length
-    ? `<th>ID</th><th>Tijdstip</th><th>Reden</th><th>Beurten</th><th>Probleem</th>${rawColList.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}`
-    : `<th>Gesprek ID</th><th>Tijdstip</th><th>Reden</th><th>Beurten</th><th>Probleem</th><th>Bron</th>`;
+    ? `<th>${escapeHtml(t("hscConvHeader"))}</th><th>${escapeHtml(t("hscTimeHeader"))}</th><th>${escapeHtml(t("hscReasonHeader"))}</th><th>${escapeHtml(t("hscTurnsHeader"))}</th><th>${escapeHtml(t("hscIssueHeader"))}</th>${rawColList.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}`
+    : `<th>${escapeHtml(t("hscConvIdHeader"))}</th><th>${escapeHtml(t("hscTimeHeader"))}</th><th>${escapeHtml(t("hscReasonHeader"))}</th><th>${escapeHtml(t("hscTurnsHeader"))}</th><th>${escapeHtml(t("hscIssueHeader"))}</th><th>${escapeHtml(t("hscSourceHeader"))}</th>`;
 
   const convTableRows = displayRows.map((r) => {
     const raw = rawByConvId[String(r.conversationId || "")] || null;
@@ -2536,7 +2825,7 @@ function openHandoverCategoryModal(encodedCategory) {
   }).join("");
 
   const moreNote = item.rows.length > 200
-    ? `<p class="muted" style="margin:0.5rem 0 0;font-size:0.82rem;">${item.rows.length - 200} extra rijen niet getoond.</p>`
+    ? `<p class="muted" style="margin:0.5rem 0 0;font-size:0.82rem;">${escapeHtml(t("hscMoreRows", { n: item.rows.length - 200 }))}</p>`
     : "";
 
   byId("hscModalTitle").textContent = category;
@@ -2544,30 +2833,30 @@ function openHandoverCategoryModal(encodedCategory) {
   const bodyEl = byId("hscModalBody");
   bodyEl.innerHTML = `
     <div class="hsc-modal-tabs" data-hsc-tabs>
-      <button class="hsc-tab-btn active" data-hsc-tab="hscTabOverview">Overzicht</button>
-      <button class="hsc-tab-btn" data-hsc-tab="hscTabConversations">Gesprekken (${item.rows.length})</button>
-      <button class="hsc-tab-btn" data-hsc-tab="hscTabSignals">Signaalanalyse</button>
-      <button class="hsc-tab-btn" data-hsc-tab="hscTabTimeline">Tijdlijn (${dayEntries.length}d)</button>
+      <button class="hsc-tab-btn active" data-hsc-tab="hscTabOverview">${escapeHtml(t("hscTabOverview"))}</button>
+      <button class="hsc-tab-btn" data-hsc-tab="hscTabConversations">${escapeHtml(t("hscTabConversations"))} (${item.rows.length})</button>
+      <button class="hsc-tab-btn" data-hsc-tab="hscTabSignals">${escapeHtml(t("hscTabSignals"))}</button>
+      <button class="hsc-tab-btn" data-hsc-tab="hscTabTimeline">${escapeHtml(t("hscTabTimeline"))} (${dayEntries.length}d)</button>
     </div>
 
-    <!-- Tab: Overzicht -->
+    <!-- Tab: Overview -->
     <div id="hscTabOverview" class="hsc-tab-panel">
       <div class="hsc-stat-grid">
-        <div class="hsc-stat-card"><div class="hsc-stat-label">Overdrachten</div><div class="hsc-stat-val">${item.count}</div></div>
-        <div class="hsc-stat-card"><div class="hsc-stat-label">Aandeel</div><div class="hsc-stat-val">${pct}</div></div>
-        <div class="hsc-stat-card"><div class="hsc-stat-label">Gem. beurten</div><div class="hsc-stat-val">${avgTurns}</div></div>
-        <div class="hsc-stat-card"><div class="hsc-stat-label">Eerste overdracht</div><div class="hsc-stat-val hsc-stat-val--sm">${earliest}</div></div>
-        <div class="hsc-stat-card"><div class="hsc-stat-label">Laatste overdracht</div><div class="hsc-stat-val hsc-stat-val--sm">${latest}</div></div>
-        <div class="hsc-stat-card"><div class="hsc-stat-label">Databronnen</div><div class="hsc-stat-val">${srcEntries.length}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">${escapeHtml(t("hscStatHandovers"))}</div><div class="hsc-stat-val">${item.count}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">${escapeHtml(t("hscStatShare"))}</div><div class="hsc-stat-val">${pct}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">${escapeHtml(t("hscStatAvgTurns"))}</div><div class="hsc-stat-val">${avgTurns}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">${escapeHtml(t("hscStatFirstHandover"))}</div><div class="hsc-stat-val hsc-stat-val--sm">${earliest}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">${escapeHtml(t("hscStatLastHandover"))}</div><div class="hsc-stat-val hsc-stat-val--sm">${latest}</div></div>
+        <div class="hsc-stat-card"><div class="hsc-stat-label">${escapeHtml(t("hscStatSources"))}</div><div class="hsc-stat-val">${srcEntries.length}</div></div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-top:1.25rem;">
         <div>
-          <h4 style="margin:0 0 0.6rem;">Overdrachtssignalen</h4>
-          <div class="hsc-signals">${signalBars || '<p class="muted">Geen signaaldata.</p>'}</div>
+          <h4 style="margin:0 0 0.6rem;">${escapeHtml(t("hscSignalsTitle"))}</h4>
+          <div class="hsc-signals">${signalBars || `<p class="muted">${escapeHtml(t("hscSignalsEmpty"))}</p>`}</div>
         </div>
         <div>
-          <h4 style="margin:0 0 0.6rem;">Bron per tabel</h4>
+          <h4 style="margin:0 0 0.6rem;">${escapeHtml(t("hscSourceTitle"))}</h4>
           ${srcEntries.map(([src, n]) => {
             const sp = Math.round((n / item.count) * 100);
             return `<div class="hsc-signal-row">
@@ -2579,9 +2868,9 @@ function openHandoverCategoryModal(encodedCategory) {
         </div>
       </div>
 
-      <h4 style="margin:1.25rem 0 0.6rem;">Top problemen (frequentie)</h4>
+      <h4 style="margin:1.25rem 0 0.6rem;">${escapeHtml(t("hscTopIssuesTitle"))}</h4>
       ${topIssues.length ? `<div class="table-wrap"><table>
-        <thead><tr><th>Probleem</th><th>Aantal</th><th>%</th></tr></thead>
+        <thead><tr><th>${escapeHtml(t("hscProblemHeader"))}</th><th>${escapeHtml(t("hscCountHeader"))}</th><th>${escapeHtml(t("hscPctHeader"))}</th></tr></thead>
         <tbody>${topIssues.map(([issue, n]) => `
           <tr>
             <td>${escapeHtml(issue)}</td>
@@ -2589,28 +2878,28 @@ function openHandoverCategoryModal(encodedCategory) {
             <td>${Math.round((n / item.count) * 100)}%</td>
           </tr>`).join("")}
         </tbody>
-      </table></div>` : '<p class="muted">Geen probleemdata.</p>'}
+      </table></div>` : `<p class="muted">${escapeHtml(t("hscTopIssuesEmpty"))}</p>`}
     </div>
 
-    <!-- Tab: Gesprekken -->
+    <!-- Tab: Conversations -->
     <div id="hscTabConversations" class="hsc-tab-panel" hidden>
-      ${rawEnriched && rawColList.length ? `<p class="muted" style="margin:0 0 0.5rem;font-size:0.8rem;">Aangevuld met ${rawColList.length} kolommen uit de database (${Object.keys(rawByConvId).length} gesprekken gevonden in opgeslagen rijen).</p>` : ""}
+      ${rawEnriched && rawColList.length ? `<p class="muted" style="margin:0 0 0.5rem;font-size:0.8rem;">${escapeHtml(t("hscEnrichedNote", { n: rawColList.length, m: Object.keys(rawByConvId).length }))}</p>` : ""}
       <div class="table-wrap" style="max-height:500px;">
         <table>
           <thead><tr>${convTableHeaders}</tr></thead>
-          <tbody>${convTableRows || `<tr><td colspan="6" class="muted">Geen gesprekken.</td></tr>`}</tbody>
+          <tbody>${convTableRows || `<tr><td colspan="6" class="muted">${escapeHtml(t("hscNoConversations"))}</td></tr>`}</tbody>
         </table>
       </div>
       ${moreNote}
     </div>
 
-    <!-- Tab: Signaalanalyse -->
+    <!-- Tab: Signal Analysis -->
     <div id="hscTabSignals" class="hsc-tab-panel" hidden>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
         <div>
-          <h4 style="margin:0 0 0.6rem;">Overdrachtsoorzaken</h4>
+          <h4 style="margin:0 0 0.6rem;">${escapeHtml(t("hscCausesTitle"))}</h4>
           <div class="table-wrap"><table>
-            <thead><tr><th>Signaal</th><th>Aantal</th><th>%</th></tr></thead>
+            <thead><tr><th>${escapeHtml(t("hscSignalHeader"))}</th><th>${escapeHtml(t("hscCountHeader"))}</th><th>${escapeHtml(t("hscPctHeader"))}</th></tr></thead>
             <tbody>${reasonEntries.map(([r, n]) => `
               <tr>
                 <td>${escapeHtml(reasonLabels[r] || r)}</td>
@@ -2621,9 +2910,9 @@ function openHandoverCategoryModal(encodedCategory) {
           </table></div>
         </div>
         <div>
-          <h4 style="margin:0 0 0.6rem;">Top 10 langste gesprekken</h4>
+          <h4 style="margin:0 0 0.6rem;">${escapeHtml(t("hscLongestTitle"))}</h4>
           <div class="table-wrap"><table>
-            <thead><tr><th>ID</th><th>Beurten</th><th>Reden</th></tr></thead>
+            <thead><tr><th>${escapeHtml(t("hscConvHeader"))}</th><th>${escapeHtml(t("hscTurnsHeader"))}</th><th>${escapeHtml(t("hscReasonHeader"))}</th></tr></thead>
             <tbody>${item.rows.slice().sort((a, b) => (b.turns || 0) - (a.turns || 0)).slice(0, 10).map((r) => `
               <tr>
                 <td class="copyable-cell">${escapeHtml(String(r.conversationId || "-"))}</td>
@@ -2636,12 +2925,12 @@ function openHandoverCategoryModal(encodedCategory) {
       </div>
     </div>
 
-    <!-- Tab: Tijdlijn -->
+    <!-- Tab: Timeline -->
     <div id="hscTabTimeline" class="hsc-tab-panel" hidden>
       ${dayEntries.length ? `
-        <h4 style="margin:0 0 0.75rem;">Overdrachten per dag</h4>
+        <h4 style="margin:0 0 0.75rem;">${escapeHtml(t("hscTimelineTitle"))}</h4>
         <div class="table-wrap" style="max-height:420px;"><table>
-          <thead><tr><th>Datum</th><th>Aantal</th><th>Bar</th></tr></thead>
+          <thead><tr><th>${escapeHtml(t("hscDateHeader"))}</th><th>${escapeHtml(t("hscCountHeader"))}</th><th>Bar</th></tr></thead>
           <tbody>${(() => {
             const maxN = Math.max(...dayEntries.map((d) => d[1]), 1);
             return dayEntries.map(([day, n]) => `
@@ -2652,7 +2941,7 @@ function openHandoverCategoryModal(encodedCategory) {
               </tr>`).join("");
           })()}
           </tbody>
-        </table></div>` : '<p class="muted">Geen tijdstempeldata beschikbaar.</p>'}
+        </table></div>` : `<p class="muted">${escapeHtml(t("hscTimelineEmpty"))}</p>`}
     </div>
   `;
 
@@ -2671,7 +2960,7 @@ function openHandoverCategoryModal(encodedCategory) {
   // Copy-cell handler
   bodyEl.querySelectorAll(".copyable-cell").forEach((el) => {
     el.style.cursor = "pointer";
-    el.title = "Klik om te kopiëren";
+    el.title = t("hscCopyHint");
     el.addEventListener("click", () => {
       const v = el.textContent.trim();
       navigator.clipboard?.writeText(v).catch(() => {
@@ -2714,7 +3003,7 @@ function renderIntentHandovers() {
     if (summaryEl) summaryEl.textContent = "";
     if (diagnostic) {
       diagnostic.style.display = "block";
-      diagnostic.innerHTML = `<article class="panel" style="background:#fff8f0;border-color:#f4b648;"><p style="margin:0;color:#b45309;">Geen datasets geladen. Upload eerst een database via het tabblad <strong>Database Upload</strong>.</p></article>`;
+      diagnostic.innerHTML = `<article class="panel" style="background:#fff8f0;border-color:#f4b648;"><p style="margin:0;color:#b45309;">${escapeHtml(t("ihNoDatasets"))}</p></article>`;
     }
     if (kpiTotal) kpiTotal.textContent = "0";
     if (kpiDatasets) kpiDatasets.textContent = "0";
@@ -2728,8 +3017,8 @@ function renderIntentHandovers() {
   const datasetSel = byId("ihDatasetSelect");
   if (datasetSel && !datasetSel.dataset.hydrated) {
     datasetSel.dataset.hydrated = "1";
-    datasetSel.innerHTML = `<option value="__all__">Alle datasets gecombineerd (${datasets.length})</option>` +
-      datasets.map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.targetLabel || d.id)} (${Number(d.analysis?.rowCount || 0).toLocaleString()} rijen)</option>`).join("");
+    datasetSel.innerHTML = `<option value="__all__">${escapeHtml(t("ihAllDatasetsLabel", { n: datasets.length }))}</option>` +
+      datasets.map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.targetLabel || d.id)} (${Number(d.analysis?.rowCount || 0).toLocaleString()} ${escapeHtml(t("ihRowsSuffix"))})</option>`).join("");
     datasetSel.addEventListener("change", () => {
       state.intentHandoverView.page = 1;
       delete byId("ihSourceFilter")?.dataset.hydrated;
@@ -2752,7 +3041,7 @@ function renderIntentHandovers() {
   if (sourceSel && !sourceSel.dataset.hydrated) {
     sourceSel.dataset.hydrated = "1";
     const sources = Array.from(new Set(allHandoverRows.map((r) => r.sourceTable).filter(Boolean))).sort();
-    sourceSel.innerHTML = `<option value="">Alle tabellen</option>` +
+    sourceSel.innerHTML = `<option value="">${escapeHtml(t("ihAllTablesOption"))}</option>` +
       sources.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
     sourceSel.addEventListener("change", () => { state.intentHandoverView.page = 1; renderIntentHandovers(); });
   }
@@ -2760,7 +3049,7 @@ function renderIntentHandovers() {
   if (catSel && !catSel.dataset.hydrated) {
     catSel.dataset.hydrated = "1";
     const cats = Array.from(new Set(allHandoverRows.map((r) => r.category).filter(Boolean))).sort();
-    catSel.innerHTML = `<option value="">Alle categorieën</option>` +
+    catSel.innerHTML = `<option value="">${escapeHtml(t("ihAllCategoriesOption"))}</option>` +
       cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
     catSel.addEventListener("change", () => { state.intentHandoverView.page = 1; renderIntentHandovers(); });
   }
@@ -2797,19 +3086,19 @@ function renderIntentHandovers() {
         const flagCols = cols.filter((c) => HANDOVER_FLAG_RE.test(c));
         const fkCols = cols.filter((c) => HANDOVER_FK_RE.test(c));
         const signals = [];
-        if (fields.category) signals.push(`categorie-kolom: <code>${escapeHtml(fields.category)}</code>`);
-        if (flagCols.length) signals.push(`vlag-kolommen: ${flagCols.map((c) => `<code>${escapeHtml(c)}</code>`).join(", ")}`);
-        if (fkCols.length) signals.push(`handover-FK: ${fkCols.map((c) => `<code>${escapeHtml(c)}</code>`).join(", ")}`);
-        return `<li><strong>${escapeHtml(d.name || d.targetLabel || d.id)}</strong> — ${cols.length} kolommen${signals.length ? " · " + signals.join(" · ") : " · geen handover-signalen herkend"}</li>`;
+        if (fields.category) signals.push(`${t("ihCatColLabel")}: <code>${escapeHtml(fields.category)}</code>`);
+        if (flagCols.length) signals.push(`${t("ihFlagColsLabel")}: ${flagCols.map((c) => `<code>${escapeHtml(c)}</code>`).join(", ")}`);
+        if (fkCols.length) signals.push(`${t("ihFkColLabel")}: ${fkCols.map((c) => `<code>${escapeHtml(c)}</code>`).join(", ")}`);
+        return `<li><strong>${escapeHtml(d.name || d.targetLabel || d.id)}</strong> — ${escapeHtml(t("ihColsCount", { n: cols.length }))}${signals.length ? " · " + signals.join(" · ") : ` · ${t("ihNoSignals")}`}</li>`;
       }).join("");
       diagnostic.style.display = "block";
       diagnostic.innerHTML = `
         <article class="panel" style="background:#fff8f0;border:1px solid #f4b648;">
-          <p style="margin:0 0 0.5rem;color:#92400e;font-weight:600;">Geen handover-rijen gevonden</p>
-          <p class="muted" style="margin:0 0 0.4rem;">Gedetecteerde signalen: tekst-intent (<em>handover, escalatie, transfer…</em>), boolean vlaggen (<em>is_handover=1</em>) en handover-reden FK's (<em>handover_reason_id≠null</em>).</p>
-          <p class="muted" style="margin:0 0 0.5rem;">Doorzochte dataset${targetDatasets.length > 1 ? "s" : ""}:</p>
+          <p style="margin:0 0 0.5rem;color:#92400e;font-weight:600;">${escapeHtml(t("ihNoHandoversFound"))}</p>
+          <p class="muted" style="margin:0 0 0.4rem;">${escapeHtml(t("ihNoHandoversHint"))}</p>
+          <p class="muted" style="margin:0 0 0.5rem;">${escapeHtml(t("ihNoHandoversDatasets"))}</p>
           <ul class="muted" style="font-size:0.82rem;">${checked}</ul>
-          <p class="muted" style="margin:0.4rem 0 0;">Kies een andere dataset of controleer of de juiste tabel is geladen.</p>
+          <p class="muted" style="margin:0.4rem 0 0;">${escapeHtml(t("ihNoHandoversChoose"))}</p>
         </article>`;
     } else {
       diagnostic.style.display = "none";
@@ -2825,7 +3114,7 @@ function renderIntentHandovers() {
   const pageItems = filtered.slice(startIdx, startIdx + pageSize);
 
   if (!pageItems.length && allHandoverRows.length > 0) {
-    tableWrap.innerHTML = `<p class="muted" style="padding:0.5rem;">Geen rijen gevonden voor deze zoekopdracht.</p>`;
+    tableWrap.innerHTML = `<p class="muted" style="padding:0.5rem;">${escapeHtml(t("ihNoResults"))}</p>`;
   } else if (pageItems.length) {
     const cols = ["conversationId", "contactId", "timestamp", "stepsToHandover", "category", "sourceTable"];
     const header = cols.map((c) => `<th>${escapeHtml(c)}</th>`).join("");
@@ -2835,8 +3124,8 @@ function renderIntentHandovers() {
     tableWrap.innerHTML = "";
   }
 
-  summaryEl.textContent = `${filtered.length.toLocaleString()} van ${allHandoverRows.length.toLocaleString()} handover-rijen`;
-  pageInfo.textContent = `Pagina ${currentPage} van ${totalPages}`;
+  summaryEl.textContent = t("ihSummaryText", { shown: filtered.length.toLocaleString(), total: allHandoverRows.length.toLocaleString() });
+  pageInfo.textContent = t("ihPageInfo", { page: currentPage, total: totalPages });
   if (prevBtn) prevBtn.disabled = currentPage <= 1;
   if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
   if (prevBtn) prevBtn.onclick = () => { state.intentHandoverView.page--; renderIntentHandovers(); };
@@ -3377,25 +3666,25 @@ function renderFrustrationTab() {
         callbacks: {
           label: (ctx) => {
             const d = ctx.raw;
-            return [`📂 ${d.cat}`, `Volume: ${d.volume}`, `Frustratie: ${d.x}%`, `Handover: ${d.y}%`];
+            return [`📂 ${d.cat}`, `${t("colVolume")}: ${d.volume}`, `${t("colFrustrationPct")}: ${d.x}%`, `${t("colHandoverPct")}: ${d.y}%`];
           }
         }
       }
     },
     scales: {
-      x: { title: { display: true, text: "Frustratie % (negatief + fallback + herhalingen + lang onopgelost)" } },
-      y: { title: { display: true, text: "Handover %" } }
+      x: { title: { display: true, text: t("colFrustrationPct") } },
+      y: { title: { display: true, text: t("colHandoverPct") } }
     }
   });
 
   const riskLabel = (score) => {
-    if (score >= 50) return `<span class="risk-badge risk-high">Hoog risico</span>`;
-    if (score >= 25) return `<span class="risk-badge risk-medium">Gemiddeld</span>`;
-    return `<span class="risk-badge risk-low">Laag</span>`;
+    if (score >= 50) return `<span class="risk-badge risk-high">${escapeHtml(t("riskHigh"))}</span>`;
+    if (score >= 25) return `<span class="risk-badge risk-medium">${escapeHtml(t("riskMedium"))}</span>`;
+    return `<span class="risk-badge risk-low">${escapeHtml(t("riskLow"))}</span>`;
   };
 
   if (!rows.length) {
-    wrap.innerHTML = `<p class="muted" style="padding:1rem;">Geen categorieën gevonden met de huidige filters.</p>`;
+    wrap.innerHTML = `<p class="muted" style="padding:1rem;">${escapeHtml(t("frustrationNoData"))}</p>`;
     return;
   }
 
@@ -3403,17 +3692,17 @@ function renderFrustrationTab() {
     <table class="data-table frustration-table">
       <thead>
         <tr>
-          <th>Categorie</th>
-          <th>Volume</th>
-          <th title="Negatief sentiment">😤 Negatief</th>
-          <th title="Bot begreep niet">🤖 Fallback</th>
-          <th title="Herhaalde vragen">🔁 Herhaald</th>
-          <th title="Lang onopgelost">⏱ Lang open</th>
-          <th>Handovers</th>
-          <th>Handover %</th>
-          <th>Frustratie %</th>
-          <th>Correlatie score</th>
-          <th>Risico</th>
+          <th>${escapeHtml(t("colCategory"))}</th>
+          <th>${escapeHtml(t("colVolume"))}</th>
+          <th title="${escapeHtml(t("frustrationSignalNegative"))}">😤 ${escapeHtml(t("colNegative"))}</th>
+          <th title="${escapeHtml(t("frustrationSignalFallback"))}">🤖 ${escapeHtml(t("colFallback"))}</th>
+          <th title="${escapeHtml(t("frustrationSignalRepeated"))}">🔁 ${escapeHtml(t("colRepeated"))}</th>
+          <th title="${escapeHtml(t("frustrationSignalLongOpen"))}">⏱ ${escapeHtml(t("colLongOpen"))}</th>
+          <th>${escapeHtml(t("colHandovers"))}</th>
+          <th>${escapeHtml(t("colHandoverPct"))}</th>
+          <th>${escapeHtml(t("colFrustrationPct"))}</th>
+          <th>${escapeHtml(t("colCorrelationScore"))}</th>
+          <th>${escapeHtml(t("colRisk"))}</th>
         </tr>
       </thead>
       <tbody>
@@ -3560,24 +3849,44 @@ function renderComparison() {
   renderTable(byId("compareTableWrap"), summary, ["dataset", "uploadedAt", "rows", "conversations", "resolutionRate", "handoverRate", "handovers", "mode"]);
 }
 
+function getChartThemeColors() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  return {
+    text: dark ? "#e2e5f0" : "#1a1c2e",
+    muted: dark ? "#8892b0" : "#5c6080",
+    grid: dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)"
+  };
+}
+
 function drawChart(canvasId, type, data, extraOptions) {
   const existing = chartStore[canvasId];
   if (existing && existing.config.type === type) {
-    // Update data in-place — no destroy/recreate, no animation cost.
+    // Update data in-place and refresh theme colors
     existing.data = data;
+    const colors = getChartThemeColors();
+    existing.options.plugins.legend.labels.color = colors.text;
+    if (existing.options.scales) {
+      ["x", "y"].forEach((axis) => {
+        if (existing.options.scales[axis]) {
+          existing.options.scales[axis].ticks.color = colors.muted;
+          existing.options.scales[axis].grid.color = colors.grid;
+        }
+      });
+    }
     existing.update("none");
     return;
   }
   destroyChart(canvasId);
   const ctx = byId(canvasId);
   if (!ctx) return;
+  const colors = getChartThemeColors();
   const baseOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { labels: { color: "#1a1c2e" } } },
+    plugins: { legend: { labels: { color: colors.text } } },
     scales: type === "pie" ? {} : {
-      x: { ticks: { color: "#5c6080" }, grid: { color: "rgba(0,0,0,0.07)" } },
-      y: { ticks: { color: "#5c6080" }, grid: { color: "rgba(0,0,0,0.07)" } }
+      x: { ticks: { color: colors.muted }, grid: { color: colors.grid } },
+      y: { ticks: { color: colors.muted }, grid: { color: colors.grid } }
     }
   };
   const options = extraOptions
@@ -3605,6 +3914,24 @@ function destroyChart(id) {
   }
 }
 
+function exportToCsv(rows, columns, filename) {
+  if (!rows || !rows.length) return;
+  const escape = (v) => {
+    const s = v == null ? "" : String(v);
+    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [columns.map(escape).join(",")];
+  rows.forEach((row) => lines.push(columns.map((c) => escape(row[c])).join(",")));
+  const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "export.csv";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+}
+
 function renderTable(container, rows, columns, onSort, headerLabels) {
   if (!rows || !rows.length) {
     container.innerHTML = `<p class='muted'>${escapeHtml(t("noDataAvailable"))}</p>`;
@@ -3627,7 +3954,7 @@ function loadSession() {
     state.activeDatasetId = parsed.activeDatasetId || null;
     state.aiEnabled = !!parsed.aiEnabled;
     if (parsed.comparison && typeof parsed.comparison === "object") {
-      state.comparison.mode = parsed.comparison.mode === "pair" ? "pair" : "all3";
+      state.comparison.mode = parsed.comparison.mode === "pair" ? "pair" : "all";
       state.comparison.left = parsed.comparison.left || "";
       state.comparison.right = parsed.comparison.right || "";
     }
@@ -3735,7 +4062,7 @@ async function tryLoadCachedUploadedDatabase() {
     if (!cached || !(cached.bytes instanceof Uint8Array) || !cached.bytes.length) return false;
     const sqliteError = detectInvalidSqliteBuffer(cached.bytes);
     if (sqliteError) return false;
-    showDbLoadingOverlay(`Vorige database herladen: ${cached.name || "uploaded.db"}…`);
+    showDbLoadingOverlay(t("overlayReloadingDb", { name: cached.name || "uploaded.db" }));
     const datasets = await analyzeDbBufferToDatasets(cached.bytes, cached.name || "uploaded.db");
     if (!datasets.length) { hideDbLoadingOverlay(); return false; }
     state.datasets = datasets;
@@ -3832,7 +4159,7 @@ async function analyzeSqliteTable(db, tableName, sourceName) {
   if (isRowLimited) {
     result.analysis.notes = result.analysis.notes || [];
     result.analysis.notes.unshift(
-      `Tabel heeft ${totalRowCount.toLocaleString()} rijen — analyse beperkt tot de eerste ${MAX_TABLE_ROWS.toLocaleString()} rijen voor browserprestaties.`
+      `Table has ${totalRowCount.toLocaleString()} rows — analysis limited to the first ${MAX_TABLE_ROWS.toLocaleString()} rows for browser performance.`
     );
     result.analysis.totalDbRows = totalRowCount;
   }
@@ -3979,11 +4306,10 @@ function hydrateTargetDataset(dataset) {
   const byKey = getTargetFileDefinition(dataset.targetKey || "");
   const byName = getTargetFileDefinition(dataset.name || "");
   const targetDef = byKey || byName;
-  if (!targetDef) return null;
   return {
     ...dataset,
-    targetKey: targetDef.key,
-    targetLabel: targetDef.label
+    targetKey: targetDef ? targetDef.key : (dataset.targetKey || ""),
+    targetLabel: targetDef ? targetDef.label : (dataset.targetLabel || dataset.name || "Dataset")
   };
 }
 
@@ -4203,6 +4529,94 @@ function debounce(fn, ms) {
   };
 }
 
+// ── Dark mode ────────────────────────────────────────────────
+function loadDarkMode() {
+  try { return localStorage.getItem(DARK_MODE_KEY) === "1"; } catch { return false; }
+}
+
+function persistDarkMode(enabled) {
+  try { localStorage.setItem(DARK_MODE_KEY, enabled ? "1" : "0"); } catch { /* ignore */ }
+}
+
+function applyDarkMode(enabled) {
+  document.documentElement.dataset.theme = enabled ? "dark" : "";
+  const btn = byId("darkModeToggle");
+  if (btn) btn.textContent = t(enabled ? "lightModeLabel" : "darkModeLabel");
+}
+
+function toggleDarkMode() {
+  const current = document.documentElement.dataset.theme === "dark";
+  const next = !current;
+  applyDarkMode(next);
+  persistDarkMode(next);
+  // Re-render active chart to use updated theme colors
+  renderActiveTab(state.activeTabId);
+}
+
+// ── Confirm modal (replaces window.confirm) ──────────────────
+let _confirmResolve = null;
+
+function showConfirm(message) {
+  return new Promise((resolve) => {
+    _confirmResolve = resolve;
+    const msgEl = byId("confirmModalMessage");
+    if (msgEl) msgEl.textContent = message;
+    const bd = byId("confirmModalBackdrop");
+    const modal = byId("confirmModal");
+    if (bd) bd.hidden = false;
+    if (modal) {
+      modal.hidden = false;
+      const okBtn = byId("confirmModalOkBtn");
+      if (okBtn) setTimeout(() => okBtn.focus(), 0);
+    }
+  });
+}
+
+function closeConfirmModal(result) {
+  byId("confirmModalBackdrop").hidden = true;
+  byId("confirmModal").hidden = true;
+  if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
+}
+
+// ── Chart PNG export ─────────────────────────────────────────
+function exportChart(canvasId) {
+  const chart = chartStore[canvasId];
+  if (!chart) return;
+  const url = chart.toBase64Image("image/png", 1);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${canvasId}.png`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => document.body.removeChild(a), 200);
+}
+window.exportChart = exportChart;
+
+// ── CSV exports ──────────────────────────────────────────────
+function exportActiveDataTableCsv() {
+  const dataset = getActiveDataset();
+  if (!dataset) return;
+  const rows = dataset.rows || [];
+  const keys = dataset.analysis?.columns || (rows.length ? Object.keys(rows[0]) : []);
+  exportToCsv(rows, keys, `${String(dataset.name || "dataset").replace(/[^a-z0-9_-]/gi, "_")}.csv`);
+}
+
+function exportHandoversCsv() {
+  const dataset = getActiveDataset();
+  if (!dataset) return;
+  const a = dataset.analysis;
+  const rows = (a?.handoverRows || []).map((r) => ({ ...r, category: mapIssueLabel(r.category, a) }));
+  exportToCsv(rows, ["conversationId", "handoverTime", "category", "issue", "sourceTable", "reason", "turns"], "handovers.csv");
+}
+
+function exportIntentHandoversCsv() {
+  const targetDatasets = state.activeDatasetId === "unified"
+    ? state.datasets
+    : [getActiveDataset()].filter(Boolean);
+  const rows = targetDatasets.flatMap((d) => collectMainIntentHandoverRows(d.rows || []));
+  exportToCsv(rows, ["conversationId", "contactId", "timestamp", "stepsToHandover", "category", "sourceTable"], "intent_handovers.csv");
+}
+
 function detectInvalidSqliteBuffer(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < 16) {
     return "Received empty or invalid database payload";
@@ -4230,6 +4644,9 @@ function safeSetValue(id, value) {
 }
 
 function extractResponseText(data) {
+  // Anthropic Claude format
+  if (data?.content?.[0]?.text) return data.content[0].text;
+  // OpenAI-compatible format (legacy / proxy responses)
   if (data?.choices?.[0]?.message?.content) return data.choices[0].message.content;
   if (typeof data.output_text === "string") return data.output_text;
   if (Array.isArray(data.output)) return data.output.flatMap((item) => item.content || []).map((c) => c.text || "").join("\n");

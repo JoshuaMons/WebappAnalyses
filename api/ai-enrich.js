@@ -5,43 +5,42 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { payload, model, apiKey } = req.body || {};
-    const effectiveApiKey = process.env.OPENAI_API_KEY || apiKey;
+    const { payload, apiKey } = req.body || {};
+    const effectiveApiKey = process.env.ANTHROPIC_API_KEY || apiKey;
     if (!effectiveApiKey) {
-      res.status(400).json({ error: "Missing OpenAI API key" });
+      res.status(400).json({ error: "Missing Anthropic API key" });
       return;
     }
 
-    const allowedModels = new Set(["gpt-4o", "gpt-4o-mini"]);
-    const selectedModel = allowedModels.has(model) ? model : "gpt-4o";
     const serializedPayload = JSON.stringify(payload || []);
     if (serializedPayload.length > 60000) {
       res.status(413).json({ error: "AI enrichment payload is too large" });
       return;
     }
 
-    const prompt = `Return strict JSON with keys: insights (array), issue_labels (object). Input: ${serializedPayload}`;
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${effectiveApiKey}`
+        "x-api-key": effectiveApiKey,
+        "anthropic-version": "2023-06-01"
       },
       body: JSON.stringify({
-        model: selectedModel,
-        temperature: 0.2,
+        model: "claude-sonnet-4-6",
         max_tokens: 1200,
-        response_format: { type: "json_object" },
+        system: "You are a support analytics assistant. Output valid JSON only with keys: insights (array of strings), issue_labels (object mapping issue key to human-readable label).",
         messages: [
-          { role: "system", content: "You are a support analytics assistant. Output valid JSON only." },
-          { role: "user", content: prompt }
+          {
+            role: "user",
+            content: `Return strict JSON with keys: insights (array), issue_labels (object). Input: ${serializedPayload}`
+          }
         ]
       })
     });
 
     if (!response.ok) {
       const text = await response.text();
-      res.status(response.status).json({ error: text || "OpenAI request failed" });
+      res.status(response.status).json({ error: text || "Anthropic API request failed" });
       return;
     }
 

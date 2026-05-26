@@ -22,10 +22,11 @@
     </div>
     <div class="topbar-actions">
       <label for="languageSelect" class="muted" data-i18n="languageLabel">Language</label>
-      <select id="languageSelect">
+      <select id="languageSelect" aria-label="Select language">
         <option value="en">ENG</option>
         <option value="nl">NL</option>
       </select>
+      <button id="darkModeToggle" class="dark-mode-btn" aria-label="Toggle dark mode" data-i18n="darkModeLabel">Dark mode</button>
     </div>
   </header>
 
@@ -48,7 +49,7 @@
     <button class="tab-btn" data-tab="handoversTab" data-i18n="tabHandovers">Handovers</button>
     <button class="tab-btn" data-tab="intentHandoversTab" data-i18n="tabIntentHandovers">Intent Handovers</button>
     <button class="tab-btn" data-tab="problemsTab" data-i18n="tabProblems">Problem Analysis</button>
-    <button class="tab-btn" data-tab="frustrationTab">Frustratie &amp; Handovers</button>
+    <button class="tab-btn" data-tab="frustrationTab" data-i18n="tabFrustration">Frustration &amp; Handovers</button>
     <button class="tab-btn" data-tab="aiAnalysisTab" data-i18n="tabAiAnalysis">AI Analysis</button>
     <button class="tab-btn" data-tab="rulesTab" data-i18n="tabRules">Detection Rules</button>
     <button class="tab-btn" data-tab="comparisonTab" data-i18n="tabComparison">Dataset Comparison</button>
@@ -59,7 +60,7 @@
     <div class="controls-inline">
       <label for="activeDatasetSelect" class="muted" data-i18n="activeDatasetLabel">Active dataset</label>
       <select id="activeDatasetSelect"></select>
-      <span class="muted">Niet opgeslagen — upload elke sessie opnieuw</span>
+      <span class="muted" data-i18n="notSavedHint">Not saved — re-upload each session</span>
       <button id="clearDataBtn" class="btn danger" data-i18n="clearDataBtn">Clear Data</button>
     </div>
   </section>
@@ -73,12 +74,18 @@
       </div>
       <div class="chart-grid">
         <article class="panel">
-          <h3 data-i18n="chartResolutionDistribution">Resolution Distribution</h3>
-          <canvas id="resolutionPie"></canvas>
+          <div class="panel-header">
+            <h3 data-i18n="chartResolutionDistribution">Resolution Distribution</h3>
+            <button class="btn-xs" onclick="exportChart('resolutionPie')" data-i18n="exportChartLabel" aria-label="Export chart as PNG">Export PNG</button>
+          </div>
+          <canvas id="resolutionPie" role="img" aria-label="Resolution distribution pie chart"></canvas>
         </article>
         <article class="panel">
-          <h3 data-i18n="chartVolumeOverTime">Conversation Volume Over Time</h3>
-          <canvas id="volumeLine"></canvas>
+          <div class="panel-header">
+            <h3 data-i18n="chartVolumeOverTime">Conversation Volume Over Time</h3>
+            <button class="btn-xs" onclick="exportChart('volumeLine')" data-i18n="exportChartLabel" aria-label="Export chart as PNG">Export PNG</button>
+          </div>
+          <canvas id="volumeLine" role="img" aria-label="Conversation volume line chart"></canvas>
         </article>
       </div>
       <article class="panel">
@@ -112,17 +119,18 @@
       <article class="panel">
         <h3 data-i18n="fullDataset">Full Dataset</h3>
         <div class="controls-inline">
-          <input id="tableFilterInput" type="text" data-i18n-placeholder="filterRowsPlaceholder" placeholder="Filter rows..." />
+          <input id="tableFilterInput" type="text" data-i18n-placeholder="filterRowsPlaceholder" placeholder="Filter rows..." aria-label="Filter dataset rows" />
           <label for="tablePageSizeSelect" data-i18n="rowsPerPage">Rows per page</label>
-          <select id="tablePageSizeSelect">
+          <select id="tablePageSizeSelect" aria-label="Rows per page">
             <option value="25">25</option>
             <option value="50">50</option>
             <option value="100">100</option>
             <option value="250">250</option>
           </select>
           <button id="tablePrevBtn" class="btn" data-i18n="prevBtn">Prev</button>
-          <span id="tablePageInfo" class="muted"></span>
+          <span id="tablePageInfo" class="muted" aria-live="polite"></span>
           <button id="tableNextBtn" class="btn" data-i18n="nextBtn">Next</button>
+          <button id="exportDataTableCsvBtn" class="btn-xs" data-i18n="exportCsvBtn" aria-label="Export table as CSV">Export CSV</button>
         </div>
         <div id="dataTableWrap" class="table-wrap"></div>
       </article>
@@ -135,12 +143,18 @@
       </div>
       <div class="chart-grid">
         <article class="panel">
-          <h3 data-i18n="chartHandoversOverTime">Handovers Over Time</h3>
-          <canvas id="handoverTimeline"></canvas>
+          <div class="panel-header">
+            <h3 data-i18n="chartHandoversOverTime">Handovers Over Time</h3>
+            <button class="btn-xs" onclick="exportChart('handoverTimeline')" data-i18n="exportChartLabel" aria-label="Export chart as PNG">Export PNG</button>
+          </div>
+          <canvas id="handoverTimeline" role="img" aria-label="Handovers over time chart"></canvas>
         </article>
         <article class="panel">
-          <h3 data-i18n="chartHandoversByCategory">Handovers by Issue Category</h3>
-          <canvas id="handoverCategoryBar"></canvas>
+          <div class="panel-header">
+            <h3 data-i18n="chartHandoversByCategory">Handovers by Issue Category</h3>
+            <button class="btn-xs" onclick="exportChart('handoverCategoryBar')" data-i18n="exportChartLabel" aria-label="Export chart as PNG">Export PNG</button>
+          </div>
+          <canvas id="handoverCategoryBar" role="img" aria-label="Handovers by category chart"></canvas>
         </article>
       </div>
       <article class="panel">
@@ -172,28 +186,31 @@
           <span id="handoverFilterInfo" class="muted"></span>
         </div>
         <div id="handoverTableWrap" class="table-wrap"></div>
+        <div class="controls-inline mt-small">
+          <button id="exportHandoversCsvBtn" class="btn-xs" data-i18n="exportCsvBtn" aria-label="Export handovers as CSV">Export CSV</button>
+        </div>
       </article>
     </section>
 
     <section id="intentHandoversTab" class="tab-content">
       <!-- KPI row -->
       <div class="kpi-grid">
-        <article class="kpi-card"><h3>Handover-rijen gevonden</h3><p id="ihKpiTotal">0</p></article>
-        <article class="kpi-card"><h3>Datasets doorzocht</h3><p id="ihKpiDatasets">0</p></article>
-        <article class="kpi-card"><h3>Unieke gesprekken</h3><p id="ihKpiConversations">0</p></article>
+        <article class="kpi-card"><h3 data-i18n="ihKpiTotalLabel">Handover rows found</h3><p id="ihKpiTotal">0</p></article>
+        <article class="kpi-card"><h3 data-i18n="ihKpiDatasetsLabel">Datasets searched</h3><p id="ihKpiDatasets">0</p></article>
+        <article class="kpi-card"><h3 data-i18n="ihKpiConversationsLabel">Unique conversations</h3><p id="ihKpiConversations">0</p></article>
       </div>
 
       <!-- Filters -->
-      <article class="panel" style="padding-bottom:0.6rem;">
-        <div class="controls-inline" style="flex-wrap:wrap;gap:0.5rem 1rem;margin-bottom:0;">
-          <label class="muted">Dataset</label>
-          <select id="ihDatasetSelect" style="min-width:220px;"></select>
-          <label class="muted">Zoeken</label>
-          <input id="intentHandoverSearchInput" type="text" placeholder="Zoek op gesprek-ID, contact, categorie..." style="min-width:240px;" />
-          <label class="muted">Bron</label>
-          <select id="ihSourceFilter"><option value="">Alle tabellen</option></select>
-          <label class="muted">Categorie</label>
-          <select id="ihCategoryFilter"><option value="">Alle categorieën</option></select>
+      <article class="panel panel--compact">
+        <div class="controls-inline">
+          <label class="muted" data-i18n="ihDatasetLabel">Dataset</label>
+          <select id="ihDatasetSelect" class="select-wide" aria-label="Select dataset"></select>
+          <label class="muted" data-i18n="ihSearchLabel">Search</label>
+          <input id="intentHandoverSearchInput" class="input-wide" type="text" data-i18n-placeholder="intentHandoverSearchPlaceholder" placeholder="Search by ID, contact, category or source..." aria-label="Search handover rows" />
+          <label class="muted" data-i18n="ihSourceLabel">Source</label>
+          <select id="ihSourceFilter" aria-label="Filter by source table"><option value="" data-i18n="ihAllTablesOption">All tables</option></select>
+          <label class="muted" data-i18n="ihCategoryLabel">Category</label>
+          <select id="ihCategoryFilter" aria-label="Filter by category"><option value="" data-i18n="ihAllCategoriesOption">All categories</option></select>
         </div>
       </article>
 
@@ -202,15 +219,19 @@
 
       <!-- Results table -->
       <article class="panel">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.5rem;">
-          <h3 style="margin:0;">Handover-rijen</h3>
-          <span id="intentHandoverSummary" class="muted"></span>
+        <div class="controls-row">
+          <h3 data-i18n="ihRowsTitle">Handover rows</h3>
+          <span id="intentHandoverSummary" class="muted" aria-live="polite"></span>
         </div>
-        <div id="intentHandoverTableWrap" class="table-wrap"></div>
-        <div class="controls-inline" style="margin-top:0.6rem;margin-bottom:0;">
-          <button id="intentHandoverPrevBtn" class="btn">Vorige</button>
-          <span id="intentHandoverPageInfo" class="muted"></span>
-          <button id="intentHandoverNextBtn" class="btn">Volgende</button>
+        <div id="intentHandoverTableWrap" class="table-wrap" role="region" aria-label="Handover rows table"></div>
+        <div class="controls-inline mt-small">
+          <button id="intentHandoverPrevBtn" class="btn" data-i18n="prevBtn" aria-label="Previous page">Prev</button>
+          <span id="intentHandoverPageInfo" class="muted" aria-live="polite"></span>
+          <button id="intentHandoverNextBtn" class="btn" data-i18n="nextBtn" aria-label="Next page">Next</button>
+          <label class="muted" data-i18n="intentHandoverGoToPageLabel">Go to page</label>
+          <input id="intentHandoverGoToPageInput" type="number" min="1" style="width:64px;" aria-label="Page number" />
+          <button id="intentHandoverGoToPageBtn" class="btn" data-i18n="intentHandoverGoToPageBtn" aria-label="Go to page">Go</button>
+          <button id="exportIntentHandoverCsvBtn" class="btn-xs" data-i18n="exportCsvBtn" aria-label="Export as CSV">Export CSV</button>
         </div>
       </article>
     </section>
@@ -218,12 +239,18 @@
     <section id="problemsTab" class="tab-content">
       <div class="chart-grid">
         <article class="panel">
-          <h3 data-i18n="topProblemCategories">Top 5 Problem Categories</h3>
-          <canvas id="problemBar"></canvas>
+          <div class="panel-header">
+            <h3 data-i18n="topProblemCategories">Top 5 Problem Categories</h3>
+            <button class="btn-xs" onclick="exportChart('problemBar')" data-i18n="exportChartLabel" aria-label="Export chart as PNG">Export PNG</button>
+          </div>
+          <canvas id="problemBar" role="img" aria-label="Top problem categories chart"></canvas>
         </article>
         <article class="panel">
-          <h3 data-i18n="failureSignalDistribution">Failure Signal Distribution</h3>
-          <canvas id="failurePie"></canvas>
+          <div class="panel-header">
+            <h3 data-i18n="failureSignalDistribution">Failure Signal Distribution</h3>
+            <button class="btn-xs" onclick="exportChart('failurePie')" data-i18n="exportChartLabel" aria-label="Export chart as PNG">Export PNG</button>
+          </div>
+          <canvas id="failurePie" role="img" aria-label="Failure signal distribution pie chart"></canvas>
         </article>
       </div>
       <article class="panel">
@@ -244,41 +271,44 @@
 
     <section id="frustrationTab" class="tab-content">
       <article class="panel">
-        <h3>Frustratie &amp; Handover Correlatie</h3>
-        <p class="muted" style="margin-bottom:0.75rem;">
-          Per categorie: hoeveel frustratie-signalen (negatief, fallback, herhalingen, lang onopgelost) en hoe verhoudt dat zich tot het aantal handovers?
-          De <strong>correlatie score</strong> combineert beide (60% frustratie%, 40% handover%). Rood = hoog risico.
+        <h3 data-i18n="frustrationTitle">Frustration &amp; Handover Correlation</h3>
+        <p class="muted" style="margin-bottom:0.75rem;" data-i18n="frustrationSubtitle">
+          Per category: how many frustration signals (negative, fallback, repeated, long unresolved) and how does that relate to handovers?
+          The <strong>correlation score</strong> combines both (60% frustration%, 40% handover%). Red = high risk.
         </p>
         <div class="controls-inline" style="flex-wrap:wrap;gap:0.5rem 1rem;">
-          <label class="muted">Min. volume</label>
+          <label class="muted" data-i18n="frustrationMinVolumeLabel">Min. volume</label>
           <input id="frustrationMinVolume" type="number" min="0" step="1" value="0" style="width:80px;" />
-          <label class="muted">Signaal</label>
+          <label class="muted" data-i18n="frustrationSignalLabel">Signal</label>
           <select id="frustrationSignalFilter">
-            <option value="all">Alle signalen</option>
-            <option value="negative">Negatief sentiment</option>
-            <option value="fallback">Fallback (bot begreep niet)</option>
-            <option value="repeated">Herhaalde vragen</option>
-            <option value="handover">Heeft handover gehad</option>
+            <option value="all" data-i18n="frustrationSignalAll">All signals</option>
+            <option value="negative" data-i18n="frustrationSignalNegative">Negative sentiment</option>
+            <option value="fallback" data-i18n="frustrationSignalFallback">Fallback (bot didn't understand)</option>
+            <option value="repeated" data-i18n="frustrationSignalRepeated">Repeated questions</option>
+            <option value="handover" data-i18n="frustrationSignalHandover">Had a handover</option>
           </select>
-          <label class="muted">Sorteer op</label>
+          <label class="muted" data-i18n="frustrationSortLabel">Sort by</label>
           <select id="frustrationSort">
-            <option value="correlationScore">Correlatie score (hoog→laag)</option>
-            <option value="frustrationPct">Frustratie %</option>
-            <option value="handoverPct">Handover %</option>
-            <option value="volume">Volume</option>
-            <option value="handovers">Aantal handovers</option>
+            <option value="correlationScore" data-i18n="frustrationSortCorrelation">Correlation score (high→low)</option>
+            <option value="frustrationPct" data-i18n="frustrationSortFrustrationPct">Frustration %</option>
+            <option value="handoverPct" data-i18n="frustrationSortHandoverPct">Handover %</option>
+            <option value="volume" data-i18n="frustrationSortVolume">Volume</option>
+            <option value="handovers" data-i18n="frustrationSortHandoverCount">Number of handovers</option>
           </select>
         </div>
       </article>
       <div class="chart-grid" style="margin-top:0;">
         <article class="panel" style="grid-column:1/-1;">
-          <h3>Frustratie % vs Handover % per categorie</h3>
-          <p class="muted" style="font-size:0.82rem;">Grootte van de cirkel = volume. Rood = hoog risico, oranje = gemiddeld, groen = laag.</p>
-          <canvas id="frustrationBubble" style="max-height:380px;"></canvas>
+          <div class="panel-header">
+            <h3 data-i18n="frustrationBubbleTitle">Frustration % vs Handover % per category</h3>
+            <button class="btn-xs" onclick="exportChart('frustrationBubble')" data-i18n="exportChartLabel" aria-label="Export chart as PNG">Export PNG</button>
+          </div>
+          <p class="muted" style="font-size:0.82rem;" data-i18n="frustrationBubbleSubtitle">Circle size = volume. Red = high risk, orange = medium, green = low.</p>
+          <canvas id="frustrationBubble" style="max-height:380px;" role="img" aria-label="Frustration vs handover bubble chart"></canvas>
         </article>
       </div>
       <article class="panel">
-        <h3>Categorieën gerangschikt op risico</h3>
+        <h3 data-i18n="frustrationRankedTitle">Categories ranked by risk</h3>
         <div id="frustrationTableWrap" class="table-wrap"></div>
       </article>
     </section>
@@ -288,13 +318,14 @@
         <h3 data-i18n="aiControlTitle">AI Controls</h3>
         <div class="controls-inline">
           <label class="toggle-wrap">
-            <input id="aiEnabled" type="checkbox" />
-            <span data-i18n="aiToggle">Enable AI-powered analysis (OpenAI GPT-4o)</span>
+            <input id="aiEnabled" type="checkbox" aria-describedby="aiKeyNote" />
+            <span data-i18n="aiToggle">Enable AI analysis (Claude)</span>
           </label>
-          <input id="openAiKey" type="password" data-i18n-placeholder="openAiKeyPlaceholder" placeholder="OpenAI API Key (optional if AI is off)" />
+          <input id="openAiKey" type="password" data-i18n-placeholder="openAiKeyPlaceholder" placeholder="Anthropic API Key (optional if AI is off)" aria-label="Anthropic API key" />
           <button id="clearApiKeyBtn" class="btn" data-i18n="clearApiKeyBtn">Clear API Key</button>
           <button id="runAiBtn" class="btn primary" data-i18n="runAiBtn">Run AI Enrichment</button>
         </div>
+        <p id="aiKeyNote" class="ai-key-note" data-i18n="aiKeySecurityNote">API key is stored in browser session only and never sent to our servers.</p>
       </article>
       <article class="panel">
         <h3 data-i18n="aiAnalysisSummaryTitle">AI Analysis Summary</h3>
@@ -363,7 +394,7 @@
         <div class="controls-inline">
           <label for="compareModeSelect" data-i18n="compareModeLabel">Mode</label>
           <select id="compareModeSelect">
-            <option value="all3" data-i18n="compareModeAll3">All 3 datasets</option>
+            <option value="all" data-i18n="compareModeAll">All datasets</option>
             <option value="pair" data-i18n="compareModePair">Choose 2 datasets</option>
           </select>
           <label for="compareLeftSelect" data-i18n="compareLeftLabel">Dataset A</label>
@@ -373,12 +404,18 @@
         </div>
       </article>
       <article class="panel">
-        <h3 data-i18n="datasetPerformanceComparison">Dataset Performance Comparison</h3>
-        <canvas id="datasetCompareBar"></canvas>
+        <div class="panel-header">
+          <h3 data-i18n="datasetPerformanceComparison">Dataset Performance Comparison</h3>
+          <button class="btn-xs" onclick="exportChart('datasetCompareBar')" data-i18n="exportChartLabel" aria-label="Export chart as PNG">Export PNG</button>
+        </div>
+        <canvas id="datasetCompareBar" role="img" aria-label="Dataset performance comparison chart"></canvas>
       </article>
       <article class="panel">
-        <h3 data-i18n="datasetTrendUploadOrder">Week-over-Week Style Trend by Upload Order</h3>
-        <canvas id="datasetTrendLine"></canvas>
+        <div class="panel-header">
+          <h3 data-i18n="datasetTrendUploadOrder">Week-over-Week Style Trend by Upload Order</h3>
+          <button class="btn-xs" onclick="exportChart('datasetTrendLine')" data-i18n="exportChartLabel" aria-label="Export chart as PNG">Export PNG</button>
+        </div>
+        <canvas id="datasetTrendLine" role="img" aria-label="Dataset trend line chart"></canvas>
       </article>
       <article class="panel">
         <h3 data-i18n="datasetSummaryTable">Dataset Summary Table</h3>
@@ -409,12 +446,27 @@
   <div id="hscModal" class="modal hsc-modal" role="dialog" aria-modal="true" aria-labelledby="hscModalTitle" hidden>
     <div class="modal-header">
       <div>
-        <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:0.15rem;">Overdrachtsanalyse</div>
+        <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:0.15rem;" data-i18n="hscAnalysisLabel">Handover Analysis</div>
         <h3 id="hscModalTitle" style="margin:0;"></h3>
       </div>
-      <button id="hscModalCloseBtn" class="btn">Sluiten</button>
+      <button id="hscModalCloseBtn" class="btn" data-i18n="closeBtn">Close</button>
     </div>
     <div id="hscModalBody" class="modal-body hsc-modal-body"></div>
+  </div>
+
+  <!-- Confirm Modal (replaces window.confirm) -->
+  <div id="confirmModalBackdrop" class="modal-backdrop" hidden></div>
+  <div id="confirmModal" class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmModalTitle" hidden>
+    <div class="modal-header">
+      <h3 id="confirmModalTitle" data-i18n="confirmTitle">Confirm</h3>
+    </div>
+    <div class="modal-body">
+      <p id="confirmModalMessage"></p>
+      <div class="confirm-modal-actions">
+        <button id="confirmModalCancelBtn" class="btn" data-i18n="cancelBtn">Cancel</button>
+        <button id="confirmModalOkBtn" class="btn primary" data-i18n="confirmBtn">Confirm</button>
+      </div>
+    </div>
   </div>
 
   <p id="statusMessage" class="status" hidden></p>
@@ -423,9 +475,9 @@
   <div id="dbLoadingOverlay" class="db-loading-overlay" hidden>
     <div class="db-loading-box">
       <div class="db-loading-spinner"></div>
-      <p class="db-loading-title">Database laden…</p>
-      <p id="dbLoadingStatus" class="db-loading-sub">Even geduld, dit kan even duren.</p>
-      <p class="db-loading-hint">De browser verwerkt grote bestanden in één keer.<br>De pagina reageert weer zodra de analyse klaar is.</p>
+      <p class="db-loading-title" data-i18n="dbLoadingTitle">Loading database…</p>
+      <p id="dbLoadingStatus" class="db-loading-sub" data-i18n="dbLoadingWait">Please wait, this may take a while.</p>
+      <p class="db-loading-hint" data-i18n="dbLoadingHint">The browser processes large files all at once. The page will respond again once analysis is complete.</p>
     </div>
   </div>
 </body>

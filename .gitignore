@@ -4,6 +4,12 @@
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.db-journal
+
+# Data exports / uploads — may contain sensitive customer data
+data/*.xlsx
+data/*.xls
+data/*.csv
 
 # Environment variables
 .env
@@ -13,3 +19,10 @@ data/*.db-shm
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Codex push temp files
+.codex-push-tmp/
+
+# Test / large binary files
+data/*.bin
+data/*.txt

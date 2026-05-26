@@ -155,7 +155,7 @@ main,
 }
 
 input, select, button {
-  background: #fff;
+  background: var(--bg-1);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -240,7 +240,7 @@ main { padding: 0 1.2rem 1.5rem; }
 }
 
 .kpi-card {
-  background: #fff;
+  background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 1.1rem;
@@ -278,7 +278,7 @@ canvas { width: 100% !important; height: 300px !important; }
   text-transform: uppercase; letter-spacing: 0.07em;
   color: var(--text-muted);
   border-bottom: 2px solid var(--border);
-  background: #f7f9fe;
+  background: var(--bg-2);
 }
 .table-wrap td {
   padding: 12px 8px;
@@ -299,7 +299,7 @@ canvas { width: 100% !important; height: 300px !important; }
 }
 .handover-summary-card {
   border: 1px solid var(--border); border-radius: 10px;
-  background: #fff; padding: 0.75rem; box-shadow: var(--shadow);
+  background: var(--bg-1); padding: 0.75rem; box-shadow: var(--shadow);
 }
 .handover-summary-card__top {
   display: flex; justify-content: space-between;
@@ -310,7 +310,7 @@ canvas { width: 100% !important; height: 300px !important; }
 
 .query-builder {
   border: 1px solid var(--border);
-  background: #f7f9fe;
+  background: var(--bg-2);
   border-radius: 14px; padding: 0.9rem; margin: 0.2rem 0 0.8rem;
 }
 .query-builder__header {
@@ -330,13 +330,13 @@ canvas { width: 100% !important; height: 300px !important; }
 .ms { position: relative; }
 .ms-btn {
   width: 100%; text-align: left; padding: 0.55rem 0.75rem;
-  border-radius: 10px; background: #fff; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg-1); border: 1px solid var(--border);
   color: var(--text);
 }
 .ms-btn:hover { border-color: var(--border-hi); }
 .ms-panel {
   position: absolute; top: calc(100% + 8px); left: 0; right: 0;
-  z-index: 40; background: #fff;
+  z-index: 40; background: var(--bg-1);
   border: 1px solid var(--border); border-radius: 14px;
   box-shadow: var(--shadow); padding: 0.5rem;
   max-height: 260px; overflow: auto;
@@ -368,7 +368,7 @@ canvas { width: 100% !important; height: 300px !important; }
 table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 th, td { border: 1px solid var(--border); padding: 0.45rem 0.5rem; text-align: left; vertical-align: top; }
 th {
-  background: #f0f3fc;
+  background: var(--bg-2);
   position: sticky; top: 0; cursor: pointer;
   color: var(--text);
 }
@@ -377,7 +377,7 @@ tr:nth-child(even) td { background: rgba(61, 99, 245, 0.02); }
 ul { margin: 0; padding-left: 1.1rem; }
 
 .problem-card {
-  background: #fff; border: 1px solid var(--border);
+  background: var(--bg-1); border: 1px solid var(--border);
   border-radius: 10px; padding: 0.8rem; margin-bottom: 0.6rem;
   box-shadow: var(--shadow);
 }
@@ -385,7 +385,7 @@ ul { margin: 0; padding-left: 1.1rem; }
 .problem-subtitle { color: var(--text-muted); font-size: 0.83rem; margin-bottom: 0.55rem; }
 .problem-example-grid { display: grid; gap: 0.5rem; }
 .problem-example-card {
-  background: #f7f9fe; border: 1px solid var(--border);
+  background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 10px; padding: 0.6rem 0.7rem; cursor: pointer;
 }
 .problem-example-card:hover {
@@ -409,14 +409,14 @@ ul { margin: 0; padding-left: 1.1rem; }
   top: 50%; left: 50%; transform: translate(-50%, -50%);
   width: min(920px, calc(100vw - 2rem));
   max-height: calc(100vh - 2rem); overflow: hidden;
-  background: #fff; border: 1px solid var(--border);
+  background: var(--bg-1); border: 1px solid var(--border);
   border-radius: 16px; box-shadow: var(--shadow);
 }
 .modal-header {
   display: flex; justify-content: space-between; align-items: center;
   gap: 0.8rem; padding: 0.8rem 1rem;
   border-bottom: 1px solid var(--border);
-  background: #f7f9fe;
+  background: var(--bg-2);
 }
 .modal-header h3 { margin: 0; color: var(--text); }
 .modal-body { padding: 0.9rem 1rem 1rem; overflow: auto; max-height: calc(100vh - 8rem); }
@@ -495,7 +495,7 @@ ul { margin: 0; padding-left: 1.1rem; }
 
 .hsc-modal-tabs {
   display: flex; gap: 0; border-bottom: 1px solid var(--border);
-  background: #f7f9fe; padding: 0 1rem;
+  background: var(--bg-2); padding: 0 1rem;
 }
 .hsc-tab-btn {
   background: none; border: none; border-bottom: 2px solid transparent;
@@ -514,7 +514,7 @@ ul { margin: 0; padding-left: 1.1rem; }
   gap: 0.65rem; margin-bottom: 0.5rem;
 }
 .hsc-stat-card {
-  background: #fff; border: 1px solid var(--border);
+  background: var(--bg-1); border: 1px solid var(--border);
   border-radius: 12px; padding: 0.85rem 0.9rem;
   box-shadow: var(--shadow);
 }
@@ -541,4 +541,106 @@ ul { margin: 0; padding-left: 1.1rem; }
 @media (max-width: 600px) {
   .hsc-signal-row { grid-template-columns: 1fr; }
   .hsc-stat-val { font-size: 1.3rem; }
+}
+
+/* ── Dark Mode ─────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg-0: #0d0f17;
+  --bg-1: #161923;
+  --bg-2: #1e2130;
+  --surface: rgba(22, 25, 35, 0.97);
+  --surface-hi: rgba(61, 99, 245, 0.14);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hi: rgba(61, 99, 245, 0.55);
+  --text: #e2e5f0;
+  --text-muted: #8892b0;
+  --text-faint: #4a5170;
+  --shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0,0,0,0.3);
+}
+
+[data-theme="dark"] body {
+  background-image:
+    radial-gradient(900px 500px at 90% -5%, rgba(61,99,245,0.10), transparent 60%),
+    radial-gradient(700px 400px at -5% 20%, rgba(100,180,255,0.07), transparent 55%);
+}
+
+[data-theme="dark"] .topbar,
+[data-theme="dark"] .tabs,
+[data-theme="dark"] .dashboard-controls {
+  background: rgba(22, 25, 35, 0.92);
+}
+
+[data-theme="dark"] tr:nth-child(even) td { background: rgba(61, 99, 245, 0.04); }
+
+[data-theme="dark"] .db-loading-overlay { background: rgba(0,0,0,0.80); }
+
+/* ── Dark Mode Toggle Button ──────────────────────────────── */
+.dark-mode-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.83rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: 0.15s ease;
+  white-space: nowrap;
+}
+.dark-mode-btn:hover { border-color: var(--border-hi); color: var(--text); }
+
+/* ── Panel Header (chart title + export button) ───────────── */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+.panel-header h3 { margin: 0; }
+
+.btn-xs {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.75rem;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: 0.15s ease;
+  white-space: nowrap;
+}
+.btn-xs:hover { border-color: var(--border-hi); color: var(--text); background: var(--surface-hi); }
+
+/* ── Confirm Modal ──────────────────────────────────────────── */
+.confirm-modal {
+  width: min(480px, calc(100vw - 2rem));
+}
+.confirm-modal .modal-body p {
+  margin: 0 0 1.2rem;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+.confirm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+/* ── Utility classes replacing inline styles ───────────────── */
+.panel--compact { padding-bottom: 0.6rem; }
+.controls-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem; }
+.controls-row h3 { margin: 0; }
+.select-wide { min-width: 220px; }
+.input-wide { min-width: 240px; }
+.mt-small { margin-top: 0.6rem; margin-bottom: 0; }
+
+/* ── AI security note ──────────────────────────────────────── */
+.ai-key-note {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
